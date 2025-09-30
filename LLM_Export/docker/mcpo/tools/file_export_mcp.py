@@ -629,7 +629,7 @@ def _convert_markdown_to_structured(markdown_content):
     
     return structured
 
-def _create_excel(data: list[list[str]], filename: str, folder_path: str | None = None) -> dict:
+def _create_excel(data: list[list[str]], filename: str, folder_path: str | None = None, title: str | None = None) -> dict:
     log.debug("Creating Excel file with optional template")
     if folder_path is None:
         folder_path = _generate_unique_folder()
@@ -1280,7 +1280,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     elif format_type == "docx":
         result = _create_word(content if content is not None else [], filename, folder_path=folder_path, title=title)
     elif format_type == "xlsx":
-        result = _create_excel(content if content is not None else [], filename, folder_path=folder_path)
+        result = _create_excel(content if content is not None else [], filename, folder_path=folder_path, title=title)
     elif format_type == "csv":
         result = _create_csv(content if content is not None else [], filename, folder_path=folder_path)
     else:
@@ -1319,7 +1319,7 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
             elif fmt == "docx":
                 res = _create_word(content if content is not None else [], fname, folder_path=folder_path, title=title)
             elif fmt == "xlsx":
-                res = _create_excel(content if content is not None else [], fname, folder_path=folder_path)
+                res = _create_excel(content if content is not None else [], fname, folder_path=folder_path, title=title)
             elif fmt == "csv":
                 res = _create_csv(content if content is not None else [], fname, folder_path=folder_path)
             else:
