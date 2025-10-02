@@ -860,7 +860,10 @@ def _create_presentation(slides_data: list[dict], filename: str, folder_path: st
             tslide.shapes.title.text = title or ""
             for p in tslide.shapes.title.text_frame.paragraphs:
                 for r in p.runs:
-                    r.font.size = PptPt(28); r.font.bold = True
+                    title_info = next(({'size': PptPt(int(child.attrib.get('sz', 2800))/100), 'bold': child.attrib.get('b', '0') == '1'} for child in title_layout.element.iter() if 'defRPr' in child.tag.split('}')[-1] and 'sz' in child.attrib), {'size': PptPt(28), 'bold': True})
+
+                    r.font.size = title_info['size'] 
+                    r.font.bold = title_info['bold']
     else:
         log.debug("Creating new title slide")
         tslide = prs.slides.add_slide(title_layout)
@@ -895,7 +898,10 @@ def _create_presentation(slides_data: list[dict], filename: str, folder_path: st
             slide.shapes.title.text = slide_title
             for p in slide.shapes.title.text_frame.paragraphs:
                 for r in p.runs:
-                    r.font.size = PptPt(28); r.font.bold = True
+                    title_info = next(({'size': PptPt(int(child.attrib.get('sz', 2800))/100), 'bold': child.attrib.get('b', '0') == '1'} for child in content_layout.element.iter() if 'defRPr' in child.tag.split('}')[-1] and 'sz' in child.attrib), {'size': PptPt(28), 'bold': True})
+
+                    r.font.size = title_info['size'] 
+                    r.font.bold = title_info['bold']
 
         content_shape = None
         try:
