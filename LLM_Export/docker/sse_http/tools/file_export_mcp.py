@@ -1544,8 +1544,8 @@ if __name__ == "__main__":
             app,
             host=host,
             port=port,
-            log_level="info"
-
+            log_level="info",
+            use_colors=False
         )
     else:
         log.info("Starting file_export_mcp in stdio mode")
