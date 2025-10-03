@@ -58,7 +58,7 @@ LOG_FORMAT_ENV = os.getenv(
     "LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s"
 )
 
-DOCS_TEMPLATE_PATH = os.getenv("DOCS_TEMPLATE_DIR", "/rootPath/templates")
+DOCS_TEMPLATE_PATH = (os.getenv("DOCS_TEMPLATE_DIR") or os.path.join(DEFAULT_PATH_ENV, "templates")).rstrip("/"))
 PPTX_TEMPLATE = None
 DOCX_TEMPLATE = None
 XLSX_TEMPLATE = None
@@ -100,11 +100,12 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
     
-    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
+    XLSX_TEMPLATE_PATH = os.path.join(DEFAULT_PATH_ENV, "templates", "Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
         try:
             XLSX_TEMPLATE = load_workbook(XLSX_TEMPLATE_PATH)
+            logging.debug(f"Using XLSX template: {XLSX_TEMPLATE_PATH}")
         except Exception as e:
             logging.warning(f"Failed to load XLSX template: {e}")
             XLSX_TEMPLATE = None

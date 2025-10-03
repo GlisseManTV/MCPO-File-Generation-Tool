@@ -102,6 +102,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     if XLSX_TEMPLATE_PATH:
         try:
             XLSX_TEMPLATE = load_workbook(XLSX_TEMPLATE_PATH)
+            logging.debug(f"Using XLSX template: {XLSX_TEMPLATE_PATH}")
         except Exception as e:
             logging.warning(f"Failed to load XLSX template: {e}")
             XLSX_TEMPLATE = None
