@@ -664,7 +664,6 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
                 if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
                     cell.value = title 
                     from openpyxl.styles import Font
-                    # cell.font = Font(bold=True, size=12)
                     log.debug(f"Title '{title}' replaced in the cell {get_column_letter(cell.column)}{cell.row} containing  'title'")
                     title_cell_found = True
                     break

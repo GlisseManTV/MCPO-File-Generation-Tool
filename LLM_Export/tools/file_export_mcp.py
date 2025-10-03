@@ -1,10 +1,12 @@
 import re
 import os
 import ast
+import csv
 import json
 import uuid
 import emoji
 import time
+import asyncio
 import base64
 import datetime
 import tarfile
@@ -16,6 +18,8 @@ from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
 import tempfile
+import uvicorn
+from typing import Any
 from PIL import Image
 from docx import Document
 from docx.shared import Inches
@@ -26,8 +30,12 @@ from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
+from mcp.server.sse import SseServerTransport
+from starlette.requests import Request
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.responses import Response, JSONResponse
 from openpyxl import Workbook, load_workbook
-import csv
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
@@ -665,10 +673,9 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
         for row in ws.iter_rows():
             for cell in row:
                 if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
-                    cell.value = title 
+                    cell.value = title
                     from openpyxl.styles import Font
-                    # cell.font = Font(bold=True, size=12)
-                    log.debug(f"Title '{title}' replaced in the cell {get_column_letter(cell.column)}{cell.row} containing  'title'")
+                    log.debug(f"Title '{title}' remplacé dans la cellule {get_column_letter(cell.column)}{cell.row} contenant 'title'")
                     title_cell_found = True
                     break
             if title_cell_found:
@@ -1350,5 +1357,195 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
     return {"url": _public_url(folder_path, archive_filename)}
 
+async def handle_sse(request: Request) -> Response:
+    """Handle SSE transport for MCP - supports both GET and POST"""
+    
+    if request.method == "POST":
+        try:
+            message = await request.json()
+            log.debug(f"Received POST message: {message}")
+            
+            from mcp.types import JSONRPCMessage
+            
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": None
+            }
+            
+            method = message.get("method")
+            
+            if method == "initialize":
+                response["result"] = {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "file_export_mcp",
+                        "version": "1.0.0"
+                    }
+                }
+            elif method == "tools/list":
+                response["result"] = {
+                    "tools": [
+                        {
+                            "name": "create_file",
+                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, etc.)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "data": {
+                                        "type": "object",
+                                        "description": "File data including format, filename, content, etc."
+                                    },
+                                    "persistent": {
+                                        "type": "boolean",
+                                        "description": "Whether to keep files permanently"
+                                    }
+                                },
+                                "required": ["data"]
+                            }
+                        },
+                        {
+                            "name": "generate_and_archive",
+                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "files_data": {
+                                        "type": "array",
+                                        "description": "Array of file data objects"
+                                    },
+                                    "archive_format": {
+                                        "type": "string",
+                                        "enum": ["zip", "7z", "tar.gz"]
+                                    },
+                                    "archive_name": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            elif method == "tools/call":
+                params = message.get("params", {})
+                tool_name = params.get("name")
+                arguments = params.get("arguments", {})
+                
+                try:
+                    if tool_name == "create_file":
+                        result = create_file(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"File created successfully: {result.get('url')}"
+                                }
+                            ]
+                        }
+                    elif tool_name == "generate_and_archive":
+                        result = generate_and_archive(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"Archive created successfully: {result.get('url')}"
+                                }
+                            ]
+                        }
+                    else:
+                        response["error"] = {
+                            "code": -32601,
+                            "message": f"Tool not found: {tool_name}"
+                        }
+                except Exception as e:
+                    log.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
+                    response["error"] = {
+                        "code": -32000,
+                        "message": str(e)
+                    }
+            
+            return JSONResponse(response)
+            
+        except Exception as e:
+            log.error(f"Error handling POST request: {e}", exc_info=True)
+            return JSONResponse(
+                {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32000,
+                        "message": str(e)
+                    }
+                },
+                status_code=500
+            )
+    
+    else:
+        async def event_generator():
+            async with SseServerTransport("/messages") as (read_stream, write_stream):
+                try:
+                    await mcp._mcp_server.run(
+                        read_stream,
+                        write_stream,
+                        mcp._mcp_server.create_initialization_options()
+                    )
+                except Exception as e:
+                    log.error(f"SSE Error: {e}", exc_info=True)
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+
+async def handle_messages(request: Request) -> Response:
+    """Handle POST requests to /messages endpoint"""
+    try:
+        data = await request.json()
+        return JSONResponse({"jsonrpc": "2.0", "result": data})
+    except Exception as e:
+        log.error(f"Message handling error: {e}", exc_info=True)
+        return JSONResponse(
+            {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
+            status_code=500
+        )
+
+async def health_check(request: Request) -> Response:
+    """Health check endpoint"""
+    return JSONResponse({"status": "healthy", "server": "file_export_mcp"})
+
+app = Starlette(
+    debug=True,
+    routes=[
+        Route("/sse", endpoint=handle_sse, methods=["GET", "POST"]),
+        Route("/messages", endpoint=handle_messages, methods=["POST"]),
+        Route("/health", endpoint=health_check, methods=["GET"]),
+    ]
+)
+
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    
+    if "--sse" in sys.argv or "--http" in sys.argv:
+        port = int(os.getenv("MCP_HTTP_PORT", "3000"))
+        host = os.getenv("MCP_HTTP_HOST", "127.0.0.1")
+        
+        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
+        log.info(f"SSE endpoint: http://{host}:{port}/sse")
+        log.info(f"Messages endpoint: http://{host}:{port}/messages")
+        
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="info"
+        )
+    else:
+        log.info("Starting file_export_mcp in stdio mode")
+        mcp.run()
