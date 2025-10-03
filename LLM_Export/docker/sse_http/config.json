@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "file_export": {
+      "command": "python3.12",
+      "args": ["-m", "tools.file_export_mcp"],
+      "env": {
+        "PYTHONPATH": "/rootPath"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
