@@ -40,7 +40,6 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-
 PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
@@ -48,7 +47,6 @@ DEFAULT_PATH_ENV = os.getenv("PYTHONPATH", r"").rstrip("/")
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or os.path.join(DEFAULT_PATH_ENV, "output")).rstrip("/")
 os.makedirs(EXPORT_DIR, exist_ok=True)
-
 
 BASE_URL_ENV = os.getenv("FILE_EXPORT_BASE_URL")
 BASE_URL = (BASE_URL_ENV or "http://localhost:9003/files").rstrip("/")
@@ -58,7 +56,9 @@ LOG_FORMAT_ENV = os.getenv(
     "LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s"
 )
 
-DOCS_TEMPLATE_PATH = (os.getenv("DOCS_TEMPLATE_DIR") or os.path.join(DEFAULT_PATH_ENV, "templates")).rstrip("/"))
+DOCS_TEMPLATE_DIR_ENV = os.getenv("DOCS_TEMPLATE_DIR")
+DOCS_TEMPLATE_PATH = ((DOCS_TEMPLATE_DIR_ENV or os.path.join(DEFAULT_PATH_ENV, "templates")).rstrip("/"))
+os.makedirs(DOCS_TEMPLATE_PATH, exist_ok=True)
 PPTX_TEMPLATE = None
 DOCX_TEMPLATE = None
 XLSX_TEMPLATE = None
