@@ -662,14 +662,10 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
         for row in ws.iter_rows():
             for cell in row:
                 if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
-                    next_col = cell.column + 1
-                    title_target_cell = ws.cell(row=cell.row, column=next_col)
-                    title_target_cell.value = title
-                    
+                    cell.value = title 
                     from openpyxl.styles import Font
-                    title_target_cell.font = Font(bold=True, size=12)
-                    
-                    log.debug(f"Title '{title}' inserted in cell {get_column_letter(next_col)}{cell.row} next to 'title' label in {get_column_letter(cell.column)}{cell.row}")
+                    # cell.font = Font(bold=True, size=12)
+                    log.debug(f"Title '{title}' replaced in the cell {get_column_letter(cell.column)}{cell.row} containing  'title'")
                     title_cell_found = True
                     break
             if title_cell_found:
@@ -714,7 +710,7 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
     
     for c in range(len(data[0])):
         max_len = max(len(str(data[r][c])) for r in range(len(data)))
-        ws.column_dimensions[get_column_letter(start_col + c)].width = min(max_len + 2, 50)
+        ws.column_dimensions[get_column_letter(start_col + c)].width = min(max_len + 2, 150)
 
     wb.save(filepath)
 
