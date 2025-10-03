@@ -97,7 +97,6 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
     
-    #Todo 
     XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
@@ -109,8 +108,6 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     else:
         logging.debug("No XLSX template found. Creation of a blank document.")
         XLSX_TEMPLATE = None
-
-
 
 
 def search_image(query):
@@ -664,12 +661,10 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
         for row in ws.iter_rows():
             for cell in row:
                 if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
-                    # Found a cell containing "title", insert the title in the next cell in the same row
                     next_col = cell.column + 1
                     title_target_cell = ws.cell(row=cell.row, column=next_col)
                     title_target_cell.value = title
                     
-                    # Apply some formatting to make it stand out
                     from openpyxl.styles import Font
                     title_target_cell.font = Font(bold=True, size=12)
                     
@@ -690,34 +685,29 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
         wb.save(filepath)
         return {"success": True, "filepath": filepath, "filename": filename}
 
-    # Clear and insert data in one pass
     template_border = ws.cell(start_row, start_col).border
     has_borders = template_border and any([template_border.top.style, template_border.bottom.style, 
                                           template_border.left.style, template_border.right.style])
     
-    # Clear old data and insert new data
     for r in range(max(len(data) + 10, 50)):
         for c in range(max(len(data[0]) + 5, 20)):
             cell = ws.cell(row=start_row + r, column=start_col + c)
             
             if r < len(data) and c < len(data[0]):
-                # Insert our data
                 cell.value = data[r][c]
-                if r == 0 and data[r][c]:  # Header - fix deprecation warning
+                if r == 0 and data[r][c]:  
                     from openpyxl.styles import Font
                     cell.font = Font(bold=True)
-                if has_borders:  # Copy borders
+                if has_borders:  
                     from openpyxl.styles import Border
                     cell.border = Border(top=template_border.top, bottom=template_border.bottom,
                                        left=template_border.left, right=template_border.right)
             else:
-                # Clear unused cells
                 cell.value = None
                 if cell.has_style:
                     from openpyxl.styles import Font, PatternFill, Border, Alignment
                     cell.font, cell.fill, cell.border, cell.alignment = Font(), PatternFill(), Border(), Alignment()
 
-    # Update autofilter and column widths
     if ws.auto_filter:
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{start_row}:{get_column_letter(start_col + len(data[0]) - 1)}{start_row + len(data) - 1}"
     

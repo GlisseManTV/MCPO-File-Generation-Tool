@@ -26,7 +26,7 @@ from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 import csv
 from pptx import Presentation
 from pptx.util import Inches
@@ -58,8 +58,7 @@ LOG_FORMAT_ENV = os.getenv(
     "LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s"
 )
 
-
-DOCS_TEMPLATE_PATH = (os.getenv("DOCS_TEMPLATE_DIR") or os.path.join(DEFAULT_PATH_ENV, "templates")).rstrip("/"))
+DOCS_TEMPLATE_PATH = os.getenv("DOCS_TEMPLATE_DIR", "/rootPath/templates")
 PPTX_TEMPLATE = None
 DOCX_TEMPLATE = None
 XLSX_TEMPLATE = None
@@ -81,7 +80,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
                 XLSX_TEMPLATE_PATH = fpath
     if PPTX_TEMPLATE_PATH:
         try:
-            PPTX_TEMPLATE = Document(PPTX_TEMPLATE_PATH)
+            PPTX_TEMPLATE = Presentation(PPTX_TEMPLATE_PATH)
             logging.debug(f"Using PPTX template: {PPTX_TEMPLATE_PATH}")
         except Exception as e:
             logging.warning(f"PPTX template failed to load : {e}")
@@ -100,18 +99,18 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     else:
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
+    
+    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
         try:
             XLSX_TEMPLATE = load_workbook(XLSX_TEMPLATE_PATH)
         except Exception as e:
-            log.warning(f"Failed to load XLSX template: {e}")
+            logging.warning(f"Failed to load XLSX template: {e}")
             XLSX_TEMPLATE = None
     else:
         logging.debug("No XLSX template found. Creation of a blank document.")
         XLSX_TEMPLATE = None
-
-
 
 
 def search_image(query):
@@ -630,7 +629,7 @@ def _convert_markdown_to_structured(markdown_content):
     
     return structured
 
-def _create_excel(data: list[list[str]], filename: str, folder_path: str | None = None) -> dict:
+def _create_excel(data: list[list[str]], filename: str, folder_path: str | None = None, title: str | None = None) -> dict:
     log.debug("Creating Excel file with optional template")
     if folder_path is None:
         folder_path = _generate_unique_folder()
@@ -646,23 +645,82 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
         try:
             log.debug("Loading XLSX template...")
             wb = load_workbook(XLSX_TEMPLATE_PATH) 
-            ws = wb.active
             log.debug(f"Template loaded with {len(wb.sheetnames)} sheet(s)")
         except Exception as e:
             log.warning(f"Failed to load XLSX template: {e}")
             wb = Workbook()
-            ws = wb.active
     else:
         log.debug("No XLSX template available, creating new workbook")
         wb = Workbook()
-        ws = wb.active
 
-    if isinstance(data, list):
-        for row in data:
-            ws.append(row)
+    ws = wb.active
+
+    from openpyxl.utils import get_column_letter 
+
+    
+    if title:
+        ws.title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()[:31]
+        title_cell_found = False
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
+                    next_col = cell.column + 1
+                    title_target_cell = ws.cell(row=cell.row, column=next_col)
+                    title_target_cell.value = title
+                    
+                    from openpyxl.styles import Font
+                    title_target_cell.font = Font(bold=True, size=12)
+                    
+                    log.debug(f"Title '{title}' inserted in cell {get_column_letter(next_col)}{cell.row} next to 'title' label in {get_column_letter(cell.column)}{cell.row}")
+                    title_cell_found = True
+                    break
+            if title_cell_found:
+                break
+    
+    start_row, start_col = 1, 1
+    if ws.auto_filter and ws.auto_filter.ref:
+        try:
+            from openpyxl.utils import range_boundaries
+            start_col, start_row, _, _ = range_boundaries(ws.auto_filter.ref)
+        except: pass
+
+    if not data:
+        wb.save(filepath)
+        return {"success": True, "filepath": filepath, "filename": filename}
+
+    template_border = ws.cell(start_row, start_col).border
+    has_borders = template_border and any([template_border.top.style, template_border.bottom.style, 
+                                          template_border.left.style, template_border.right.style])
+    
+    for r in range(max(len(data) + 10, 50)):
+        for c in range(max(len(data[0]) + 5, 20)):
+            cell = ws.cell(row=start_row + r, column=start_col + c)
+            
+            if r < len(data) and c < len(data[0]):
+                cell.value = data[r][c]
+                if r == 0 and data[r][c]:  
+                    from openpyxl.styles import Font
+                    cell.font = Font(bold=True)
+                if has_borders:  
+                    from openpyxl.styles import Border
+                    cell.border = Border(top=template_border.top, bottom=template_border.bottom,
+                                       left=template_border.left, right=template_border.right)
+            else:
+                cell.value = None
+                if cell.has_style:
+                    from openpyxl.styles import Font, PatternFill, Border, Alignment
+                    cell.font, cell.fill, cell.border, cell.alignment = Font(), PatternFill(), Border(), Alignment()
+
+    if ws.auto_filter:
+        ws.auto_filter.ref = f"{get_column_letter(start_col)}{start_row}:{get_column_letter(start_col + len(data[0]) - 1)}{start_row + len(data) - 1}"
+    
+    for c in range(len(data[0])):
+        max_len = max(len(str(data[r][c])) for r in range(len(data)))
+        ws.column_dimensions[get_column_letter(start_col + c)].width = min(max_len + 2, 50)
 
     wb.save(filepath)
 
+    return {"url": _public_url(folder_path, fname), "path": filepath}
 def _create_csv(data: list[list[str]], filename: str, folder_path: str | None = None) -> dict:
     log.debug("Creating CSV file")
     if folder_path is None:
@@ -795,7 +853,10 @@ def _create_presentation(slides_data: list[dict], filename: str, folder_path: st
             tslide.shapes.title.text = title or ""
             for p in tslide.shapes.title.text_frame.paragraphs:
                 for r in p.runs:
-                    r.font.size = PptPt(28); r.font.bold = True
+                    title_info = next(({'size': PptPt(int(child.attrib.get('sz', 2800))/100), 'bold': child.attrib.get('b', '0') == '1'} for child in title_layout.element.iter() if 'defRPr' in child.tag.split('}')[-1] and 'sz' in child.attrib), {'size': PptPt(28), 'bold': True})
+
+                    r.font.size = title_info['size'] 
+                    r.font.bold = title_info['bold']
     else:
         log.debug("Creating new title slide")
         tslide = prs.slides.add_slide(title_layout)
@@ -830,7 +891,10 @@ def _create_presentation(slides_data: list[dict], filename: str, folder_path: st
             slide.shapes.title.text = slide_title
             for p in slide.shapes.title.text_frame.paragraphs:
                 for r in p.runs:
-                    r.font.size = PptPt(28); r.font.bold = True
+                    title_info = next(({'size': PptPt(int(child.attrib.get('sz', 2800))/100), 'bold': child.attrib.get('b', '0') == '1'} for child in content_layout.element.iter() if 'defRPr' in child.tag.split('}')[-1] and 'sz' in child.attrib), {'size': PptPt(28), 'bold': True})
+
+                    r.font.size = title_info['size'] 
+                    r.font.bold = title_info['bold']
 
         content_shape = None
         try:
@@ -1154,7 +1218,7 @@ def _create_word(content: list[dict] | str, filename: str, folder_path: str | No
                         
                         if not template_table_style:
                             try:
-                                                                tbl = table._tbl
+                                tbl = table._tbl
                                 tblPr = tbl.tblPr
                                 tblBorders = parse_xml(r'<w:tblBorders {}><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tblBorders>'.format(nsdecls('w')))
                                 tblPr.append(tblBorders)
@@ -1215,7 +1279,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     elif format_type == "docx":
         result = _create_word(content if content is not None else [], filename, folder_path=folder_path, title=title)
     elif format_type == "xlsx":
-        result = _create_excel(content if content is not None else [], filename, folder_path=folder_path)
+        result = _create_excel(content if content is not None else [], filename, folder_path=folder_path, title=title)
     elif format_type == "csv":
         result = _create_csv(content if content is not None else [], filename, folder_path=folder_path)
     else:
@@ -1254,7 +1318,7 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
             elif fmt == "docx":
                 res = _create_word(content if content is not None else [], fname, folder_path=folder_path, title=title)
             elif fmt == "xlsx":
-                res = _create_excel(content if content is not None else [], fname, folder_path=folder_path)
+                res = _create_excel(content if content is not None else [], fname, folder_path=folder_path, title=title)
             elif fmt == "csv":
                 res = _create_csv(content if content is not None else [], fname, folder_path=folder_path)
             else:
