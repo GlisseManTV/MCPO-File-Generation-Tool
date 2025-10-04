@@ -32,8 +32,11 @@ services:
       - LOCAL_SD_CFG_SCALE=1.5
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
+      - DOCS_TEMPLATE_DIR=/docs_templates
+      - PEXELS_ACCESS_KEY=""
     ports:
       - "8000:8000"
+      - "9004:9004" # Optional, only if you want to use the SSE HTTP server
     restart: unless-stopped
     volumes:
       - /your/export-data:/output

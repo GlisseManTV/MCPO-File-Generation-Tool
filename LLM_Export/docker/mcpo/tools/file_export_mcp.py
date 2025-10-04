@@ -20,15 +20,21 @@ from PIL import Image
 from docx import Document
 from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.shared import qn
+from docx.oxml.ns import nsdecls
+from docx.oxml import parse_xml
+from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 import csv
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Inches
+from pptx.util import Pt as PptPt
 from pptx.parts.image import Image
+from pptx.enum.text import MSO_AUTO_SIZE
 from io import BytesIO
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Image as ReportLabImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -41,7 +47,6 @@ EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
-
 BASE_URL_ENV = os.getenv("FILE_EXPORT_BASE_URL")
 BASE_URL = (BASE_URL_ENV or "http://localhost:9003/files").rstrip("/")
 
@@ -50,31 +55,78 @@ LOG_FORMAT_ENV = os.getenv(
     "LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s"
 )
 
+DOCS_TEMPLATE_PATH = os.getenv("DOCS_TEMPLATE_DIR", "/rootPath/templates")
+PPTX_TEMPLATE = None
+DOCX_TEMPLATE = None
+XLSX_TEMPLATE = None
+PPTX_TEMPLATE_PATH = None
+DOCX_TEMPLATE_PATH = None
+XLSX_TEMPLATE_PATH = None
+
+if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
+    logging.debug(f"Template Folder: {DOCS_TEMPLATE_PATH}")
+    for root, dirs, files in os.walk(DOCS_TEMPLATE_PATH):
+        for file in files:
+            fpath = os.path.join(root, file)
+            if file.lower().endswith(".pptx") and PPTX_TEMPLATE_PATH is None:
+                PPTX_TEMPLATE_PATH = fpath
+                logging.debug(f"PPTX template: {PPTX_TEMPLATE_PATH}")
+            elif file.lower().endswith(".docx") and DOCX_TEMPLATE_PATH is None:
+                DOCX_TEMPLATE_PATH = fpath
+            elif file.lower().endswith(".xlsx") and XLSX_TEMPLATE_PATH is None:
+                XLSX_TEMPLATE_PATH = fpath
+    if PPTX_TEMPLATE_PATH:
+        try:
+            PPTX_TEMPLATE = Presentation(PPTX_TEMPLATE_PATH)
+            logging.debug(f"Using PPTX template: {PPTX_TEMPLATE_PATH}")
+        except Exception as e:
+            logging.warning(f"PPTX template failed to load : {e}")
+            PPTX_TEMPLATE = None
+    else:
+        logging.debug("No PPTX template found. Creation of a blank document.")
+        PPTX_TEMPLATE = None
+
+    if DOCX_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
+        try:
+            DOCX_TEMPLATE = Document(DOCX_TEMPLATE_PATH)
+            logging.debug(f"Using DOCX template: {DOCX_TEMPLATE_PATH}")
+        except Exception as e:
+            logging.warning(f"DOCX template failed to load : {e}")
+            DOCX_TEMPLATE = None
+    else:
+        logging.debug("No DOCX template found. Creation of a blank document.")
+        DOCX_TEMPLATE = None
+    
+    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
+
+    if XLSX_TEMPLATE_PATH:
+        try:
+            XLSX_TEMPLATE = load_workbook(XLSX_TEMPLATE_PATH)
+            logging.debug(f"Using XLSX template: {XLSX_TEMPLATE_PATH}")
+        except Exception as e:
+            logging.warning(f"Failed to load XLSX template: {e}")
+            XLSX_TEMPLATE = None
+    else:
+        logging.debug("No XLSX template found. Creation of a blank document.")
+        XLSX_TEMPLATE = None
+
+
 def search_image(query):
+    log.debug(f"Searching for image with query: '{query}'")
     image_source = os.getenv("IMAGE_SOURCE", "unsplash")
 
     if image_source == "unsplash":
         return search_unsplash(query)
     elif image_source == "local_sd":
         return search_local_sd(query)
+    elif image_source == "pexels":
+        return search_pexels(query)
     else:
         log.warning(f"Image source unknown : {image_source}")
         return None
-
-
-def search_image(query):
-    image_source = os.getenv("IMAGE_SOURCE", "unsplash")
-
-    if image_source == "unsplash":
-        return search_unsplash(query)
-    elif image_source == "local_sd":
-        return search_local_sd(query)
-    else:
-        log.warning(f"Image source unknown : {image_source}")
-        return None
-
 
 def search_local_sd(query: str):
+    log.debug(f"Searching for local SD image with query: '{query}'")
     SD_URL = os.getenv("LOCAL_SD_URL")
     SD_USERNAME = os.getenv("LOCAL_SD_USERNAME")
     SD_PASSWORD = os.getenv("LOCAL_SD_PASSWORD")
@@ -108,6 +160,7 @@ def search_local_sd(query: str):
 
     try:
         url = f"{SD_URL}/sdapi/v1/txt2img"
+        log.debug(f"Sending request to local SD API at {url}")
         response = requests.post(
             url,
             json=payload,
@@ -146,6 +199,7 @@ def search_local_sd(query: str):
     return None
 
 def search_unsplash(query):
+    log.debug(f"Searching Unsplash for query: '{query}'")
     api_key = os.getenv("UNSPLASH_ACCESS_KEY")
     if not api_key:
         log.warning("UNSPLASH_ACCESS_KEY is not set. Cannot search for images.")
@@ -157,7 +211,7 @@ def search_unsplash(query):
         "orientation": "landscape"
     }
     headers = {"Authorization": f"Client-ID {api_key}"}
-    log.debug(f"Searching Unsplash for query: '{query}'")
+    log.debug(f"Sending request to Unsplash API")
     try:
         response = requests.get(url, params=params, headers=headers)
         log.debug(f"Unsplash API response status: {response.status_code}")
@@ -173,6 +227,39 @@ def search_unsplash(query):
         log.error(f"Network error while searching image for '{query}': {e}")
     except json.JSONDecodeError as e:
         log.error(f"Error decoding JSON from Unsplash for '{query}': {e}")
+    except Exception as e:
+        log.error(f"Unexpected error searching image for '{query}': {e}")
+    return None 
+
+def search_pexels(query):
+    log.debug(f"Searching Pexels for query: '{query}'")
+    api_key = os.getenv("PEXELS_ACCESS_KEY")
+    if not api_key:
+        log.warning("PEXELS_ACCESS_KEY is not set. Cannot search for images.")
+        return None
+    url = "https://api.pexels.com/v1/search"
+    params = {
+        "query": query,
+        "per_page": 1,
+        "orientation": "landscape"
+    }
+    headers = {"Authorization": f"{api_key}"}
+    log.debug(f"Sending request to Pexels API")
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        log.debug(f"Pexels API response status: {response.status_code}")
+        response.raise_for_status() 
+        data = response.json()
+        if data.get("photos"):
+            image_url = data["photos"][0]["src"]["large"]
+            log.debug(f"Found image URL for '{query}': {image_url}")
+            return image_url
+        else:
+            log.debug(f"No results found on Pexels for query: '{query}'")
+    except requests.exceptions.RequestException as e:
+        log.error(f"Network error while searching image for '{query}': {e}")
+    except json.JSONDecodeError as e:
+        log.error(f"Error decoding JSON from Pexels for '{query}': {e}")
     except Exception as e:
         log.error(f"Unexpected error searching image for '{query}': {e}")
     return None
@@ -202,11 +289,10 @@ def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
     total_chars = sum(len(line) for line in content_list)
     ratio = total_chars / max_chars if max_chars > 0 else 1
     if ratio <= 1:
-        return Pt(base_size)
+        return PptPt(base_size)
     else:
         new_size = int(base_size / ratio)
-        return Pt(max(min_size, new_size))
-
+        return PptPt(max(min_size, new_size))
 
 def _public_url(folder_path: str, filename: str) -> str:
     """Build a stable public URL for a generated file."""
@@ -374,11 +460,13 @@ def render_html_elements(soup):
                         alt = img_tag.get("alt", "[Image]")
                         try:
                             if src and src.startswith("http"):
+                                log.debug(f"Downloading image from URL: {src}")
                                 response = requests.get(src)
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
                                 img = Image(img_data, width=200, height=150)
                             else:
+                                log.debug(f"Loading local image: {src}")
                                 img = Image(src, width=200, height=150)
                             story.append(img)
                             story.append(Spacer(1, 10))
@@ -465,7 +553,7 @@ def render_html_elements(soup):
                                story.append(Spacer(1, 6))
                     except requests.exceptions.RequestException as e:
                         log.error(f"Network error loading image {src}: {e}")
-                        story.append(Paragraph(f"[Image (network error): {alt}]", styles["CustomNormal"]))
+                        story.append(Paragraph(f"[Image (erreur reseau): {alt}]", styles["CustomNormal"]))
                         story.append(Spacer(1, 6))
                     except Exception as e:
                         log.error(f"Error processing image {src}: {e}", exc_info=True) 
@@ -499,243 +587,521 @@ def _cleanup_files(folder_path: str, delay_minutes: int):
     thread = threading.Thread(target=delete_files)
     thread.start()
 
-@mcp.tool()
-def create_excel(data: list[list[str]], filename: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
-    folder_path = _generate_unique_folder()
-    filepath, fname = _generate_filename(folder_path, "xlsx", filename)
-    wb = Workbook()
+def _convert_markdown_to_structured(markdown_content):
+    """
+    Converts Markdown content into a structured format for Word
+    
+    Args:
+        markdown_content (str): Markdown content
+        
+    Returns:
+        list: List of objects with 'text' and 'type'
+    """
+    if not markdown_content or not isinstance(markdown_content, str):
+        return []
+    
+    lines = markdown_content.split('\n')
+    structured = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        if line.startswith('# '):
+            structured.append({"text": line[2:].strip(), "type": "title"})
+        elif line.startswith('## '):
+            structured.append({"text": line[3:].strip(), "type": "heading"})
+        elif line.startswith('### '):
+            structured.append({"text": line[4:].strip(), "type": "subheading"})
+        elif line.startswith('#### '):
+            structured.append({"text": line[5:].strip(), "type": "subheading"})
+        elif line.startswith('- '):
+            structured.append({"text": line[2:].strip(), "type": "bullet"})
+        elif line.startswith('* '):
+            structured.append({"text": line[2:].strip(), "type": "bullet"})
+        elif line.startswith('**') and line.endswith('**'):
+            structured.append({"text": line[2:-2].strip(), "type": "bold"})
+        else:
+            structured.append({"text": line, "type": "paragraph"})
+    
+    return structured
+
+def _create_excel(data: list[list[str]], filename: str, folder_path: str | None = None, title: str | None = None) -> dict:
+    log.debug("Creating Excel file with optional template")
+    if folder_path is None:
+        folder_path = _generate_unique_folder()
+    
+    if filename:
+        filepath = os.path.join(folder_path, filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fname = filename
+    else:
+        filepath, fname = _generate_filename(folder_path, "xlsx")
+
+    if XLSX_TEMPLATE:
+        try:
+            log.debug("Loading XLSX template...")
+            wb = load_workbook(XLSX_TEMPLATE_PATH) 
+            log.debug(f"Template loaded with {len(wb.sheetnames)} sheet(s)")
+        except Exception as e:
+            log.warning(f"Failed to load XLSX template: {e}")
+            wb = Workbook()
+    else:
+        log.debug("No XLSX template available, creating new workbook")
+        wb = Workbook()
+
     ws = wb.active
-    for row in data:
-        ws.append(row)
+
+    from openpyxl.utils import get_column_letter 
+
+    
+    if title:
+        ws.title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()[:31]
+        title_cell_found = False
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
+                    cell.value = title 
+                    from openpyxl.styles import Font
+                    log.debug(f"Title '{title}' replaced in the cell {get_column_letter(cell.column)}{cell.row} containing  'title'")
+                    title_cell_found = True
+                    break
+            if title_cell_found:
+                break
+    
+    start_row, start_col = 1, 1
+    if ws.auto_filter and ws.auto_filter.ref:
+        try:
+            from openpyxl.utils import range_boundaries
+            start_col, start_row, _, _ = range_boundaries(ws.auto_filter.ref)
+        except: pass
+
+    if not data:
+        wb.save(filepath)
+        return {"success": True, "filepath": filepath, "filename": filename}
+
+    template_border = ws.cell(start_row, start_col).border
+    has_borders = template_border and any([template_border.top.style, template_border.bottom.style, 
+                                          template_border.left.style, template_border.right.style])
+    
+    for r in range(max(len(data) + 10, 50)):
+        for c in range(max(len(data[0]) + 5, 20)):
+            cell = ws.cell(row=start_row + r, column=start_col + c)
+            
+            if r < len(data) and c < len(data[0]):
+                cell.value = data[r][c]
+                if r == 0 and data[r][c]:  
+                    from openpyxl.styles import Font
+                    cell.font = Font(bold=True)
+                if has_borders:  
+                    from openpyxl.styles import Border
+                    cell.border = Border(top=template_border.top, bottom=template_border.bottom,
+                                       left=template_border.left, right=template_border.right)
+            else:
+                cell.value = None
+                if cell.has_style:
+                    from openpyxl.styles import Font, PatternFill, Border, Alignment
+                    cell.font, cell.fill, cell.border, cell.alignment = Font(), PatternFill(), Border(), Alignment()
+
+    if ws.auto_filter:
+        ws.auto_filter.ref = f"{get_column_letter(start_col)}{start_row}:{get_column_letter(start_col + len(data[0]) - 1)}{start_row + len(data) - 1}"
+    
+    for c in range(len(data[0])):
+        max_len = max(len(str(data[r][c])) for r in range(len(data)))
+        ws.column_dimensions[get_column_letter(start_col + c)].width = min(max_len + 2, 150)
+
     wb.save(filepath)
-    if not persistent:
-        _cleanup_files(folder_path, FILES_DELAY)
-    return {"url": _public_url(folder_path, fname)}
 
-@mcp.tool()
-def create_csv(data: list[list[str]], filename: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
-    folder_path = _generate_unique_folder()
-    filepath, fname = _generate_filename(folder_path, "csv", filename)
+    return {"url": _public_url(folder_path, fname), "path": filepath}
+def _create_csv(data: list[list[str]], filename: str, folder_path: str | None = None) -> dict:
+    log.debug("Creating CSV file")
+    if folder_path is None:
+        folder_path = _generate_unique_folder()
+
+    if filename:
+        filepath = os.path.join(folder_path, filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fname = filename
+    else:
+        filepath, fname = _generate_filename(folder_path, "csv")
+
     with open(filepath, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerows(data)
-    if not persistent:
-        _cleanup_files(folder_path, FILES_DELAY)
-    return {"url": _public_url(folder_path, fname)}
+        if isinstance(data, list):
+            csv.writer(f).writerows(data)
+        else:
+            csv.writer(f).writerow([data])
 
-@mcp.tool()
-def create_pdf(text: list[str], filename: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
-    log.debug("Starting create_pdf tool...")
-    folder_path = _generate_unique_folder()
-    filepath, fname = _generate_filename(folder_path, "pdf", filename)
-    md_text = "\n".join(text)
-    log.debug(f"Input Markdown text:\n{md_text}")
+    return {"url": _public_url(folder_path, fname), "path": filepath}
 
+def _create_pdf(text: str | list[str], filename: str, folder_path: str | None = None) -> dict:    
+    log.debug("Creating PDF file")
+    if folder_path is None:
+        folder_path = _generate_unique_folder()
+    if filename:
+        filepath = os.path.join(folder_path, filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fname = filename
+    else:
+        filepath, fname = _generate_filename(folder_path, "pdf")
+
+    md_parts = []
+    if isinstance(text, list):
+        for item in text:
+            if isinstance(item, str):
+                md_parts.append(item)
+            elif isinstance(item, dict):
+                t = item.get("type")
+                if t == "title":
+                    md_parts.append(f"# {item.get('text','')}")
+                elif t == "subtitle":
+                    md_parts.append(f"## {item.get('text','')}")
+                elif t == "paragraph":
+                    md_parts.append(item.get("text",""))
+                elif t == "list":
+                    md_parts.append("\n".join([f"- {x}" for x in item.get("items",[])]))
+                elif t in ("image","image_query"):
+                    query = item.get("query","")
+                    if query:
+                        md_parts.append(f"![Image](image_query: {query})")
+    else:
+        md_parts = [str(text or "")]
+        
+    md_text = "\n\n".join(md_parts)    
+   
     def replace_image_query(match):
         query = match.group(1).strip()
-        log.debug(f"Found image_query placeholder: '{query}'")
         image_url = search_image(query)
+        return f'\n\n<img src="{image_url}" alt="Image: {query}" />\n\n' if image_url else ""
 
-        if image_url:
-            result_tag = f'\n\n<img src="{image_url}" alt="Searched image: {query}" />\n\n'
-            log.debug(f"Replaced image_query '{query}' with URL: {image_url}")
-        else:
-            result_tag = ""
-            log.warning(f"Failed to find image for query: '{query}'")
-
-        log.debug(f"Replacement result: {result_tag}")
-        return result_tag
-
-    log.debug("Applying image_query regex replacement...")
-    md_text_before_replace = md_text
     md_text = re.sub(r'!\[[^\]]*\]\(\s*image_query:\s*([^)]+)\)', replace_image_query, md_text)
-    if md_text != md_text_before_replace:
-        log.debug(f"Markdown text after replacement:\n{md_text}")
-    else:
-        log.debug("No image_query replacements were made.")
-
-    log.debug("Converting Markdown to HTML...")
-    html = markdown2.markdown(
-        md_text,
-        extras=[
-            'fenced-code-blocks',
-            'tables',
-            'break-on-newline',
-            'cuddled-lists', 
-        ]
-    )
-    log.debug(f"Generated HTML:\n{html}") 
-
-    log.debug("Parsing HTML with BeautifulSoup...")
+    html = markdown2.markdown(md_text, extras=['fenced-code-blocks','tables','break-on-newline','cuddled-lists'])
     soup = BeautifulSoup(html, "html.parser")
-    log.debug("Rendering HTML elements to ReportLab story...")
-    story = render_html_elements(soup)
-    log.debug(f"Story generated with {len(story)} elements.")
-    if not story:
-        log.warning("Story is empty, adding 'Empty Content' paragraph.")
-        story = [Paragraph("Empty Content", styles["CustomNormal"])]
+    story = render_html_elements(soup) or [Paragraph("Empty Content", styles["CustomNormal"])]
 
-    log.debug(f"Creating SimpleDocTemplate at {filepath}...")
-    doc = SimpleDocTemplate(
-        filepath,
-        topMargin=72,
-        bottomMargin=72,
-        leftMargin=72,
-        rightMargin=72
-    )
+    doc = SimpleDocTemplate(filepath, topMargin=72, bottomMargin=72, leftMargin=72, rightMargin=72)
     try:
-        log.debug("Attempting to build PDF document...")
-        log.debug(f"Calling doc.build with story containing {len(story)} elements.")
         doc.build(story)
-        log.debug(f"PDF creation succeed: {filepath}")
     except Exception as e:
-        log.error(f"Error in PDF building: {e}", exc_info=True) 
-        log.debug("Attempting to build PDF with error message...")
-        simple_story = [Paragraph("Error in PDF generation", styles["CustomNormal"])]
-        try:
-            doc.build(simple_story)
-            log.debug("Error PDF created successfully.")
-        except Exception as e2:
-            log.error(f"Failed to create even the error PDF: {e2}", exc_info=True)
+        log.error(f"Error building PDF {fname}: {e}", exc_info=True)
+        doc2 = SimpleDocTemplate(filepath)
+        doc2.build([Paragraph("Error in PDF generation", styles["CustomNormal"])])
 
-    if not persistent:
-        _cleanup_files(folder_path, FILES_DELAY)
-    log.debug("create_pdf tool finished.")
-    return {"url": _public_url(folder_path, fname)}
+    return {"url": _public_url(folder_path, fname), "path": filepath}
 
-@mcp.tool()
-def create_file(content: str, filename: str, persistent: bool = PERSISTENT_FILES) -> dict:
-    folder_path = _generate_unique_folder()
-    base, ext = os.path.splitext(filename)
-    filepath = os.path.join(folder_path, filename)
-    counter = 1
-    while os.path.exists(filepath):
-        filename = f"{base}_{counter}{ext}"
+def _create_presentation(slides_data: list[dict], filename: str, folder_path: str | None = None, title: str | None = None) -> dict:
+    if folder_path is None:
+        folder_path = _generate_unique_folder()
+    if filename:
         filepath = os.path.join(folder_path, filename)
-        counter += 1
-    if ext.lower() == ".xml" and not content.strip().startswith("<?xml"):
-        content = f'<?xml version="1.0" encoding="UTF-8"?>\n{content}'
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(content)
-    if not persistent:
-        _cleanup_files(folder_path, FILES_DELAY)
-    return {"url": _public_url(folder_path, filename)}
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fname = filename
+    else:
+        filepath, fname = _generate_filename(folder_path, "pptx")
+      
+    use_template = False
+    prs = None
+    title_layout = None
+    content_layout = None
 
-@mcp.tool()
-def create_presentation(slides_data: list[dict], filename: str = None, persistent: bool = PERSISTENT_FILES, title: str = None) -> dict:
-    folder_path = _generate_unique_folder()
-    filepath, fname = _generate_filename(folder_path, "pptx", filename)
-    prs = Presentation()
-    title_slide_layout = prs.slide_layouts[0]
-    slide = prs.slides.add_slide(title_slide_layout)
-    title_shape = slide.shapes.title
-    title_shape.text = title
-    for slide_data in slides_data:
+    if PPTX_TEMPLATE:
+        try:
+            log.debug("Attempting to load template...")
+            src = PPTX_TEMPLATE
+            if hasattr(PPTX_TEMPLATE, "slides") and hasattr(PPTX_TEMPLATE, "save"):
+                log.debug("Template is a Presentation object, converting to BytesIO")
+                buf = BytesIO()
+                PPTX_TEMPLATE.save(buf); buf.seek(0)
+                src = buf
+
+            tmp = Presentation(src)
+            log.debug(f"Template loaded with {len(tmp.slides)} slides")
+            if len(tmp.slides) >= 1:
+                prs = tmp
+                use_template = True
+
+                title_layout = prs.slides[0].slide_layout
+                content_layout = prs.slides[1].slide_layout if len(prs.slides) >= 2 else prs.slides[0].slide_layout
+                log.debug("Using template layouts")
+
+                for i in range(len(prs.slides) - 1, 0, -1):
+                    rId = prs.slides._sldIdLst[i].rId 
+                    prs.part.drop_rel(rId)
+                    del prs.slides._sldIdLst[i]
+        except Exception:
+            log.error(f"Error loading template: {e}")
+            use_template = False
+            prs = None
+
+    if not use_template:
+        log.debug("No valid template, creating new presentation with default layouts")
+        prs = Presentation()
+        title_layout = prs.slide_layouts[0]
+        content_layout = prs.slide_layouts[1]
+
+    if use_template:
+        log.debug("Using template title slide")
+        tslide = prs.slides[0]
+        if tslide.shapes.title:
+            tslide.shapes.title.text = title or ""
+            for p in tslide.shapes.title.text_frame.paragraphs:
+                for r in p.runs:
+                    title_info = next(({'size': PptPt(int(child.attrib.get('sz', 2800))/100), 'bold': child.attrib.get('b', '0') == '1'} for child in title_layout.element.iter() if 'defRPr' in child.tag.split('}')[-1] and 'sz' in child.attrib), {'size': PptPt(28), 'bold': True})
+
+                    r.font.size = title_info['size'] 
+                    r.font.bold = title_info['bold']
+    else:
+        log.debug("Creating new title slide")
+        tslide = prs.slides.add_slide(title_layout)
+        if tslide.shapes.title:
+            tslide.shapes.title.text = title or ""
+            for p in tslide.shapes.title.text_frame.paragraphs:
+                for r in p.runs:
+                    r.font.size = PptPt(28); r.font.bold = True
+
+    EMU_PER_IN = 914400
+    slide_w_in = prs.slide_width / EMU_PER_IN
+    slide_h_in = prs.slide_height / EMU_PER_IN
+    log.debug(f"Slide dimensions: {slide_w_in} x {slide_h_in} inches")
+
+    page_margin = 0.5
+    gutter = 0.3
+
+    for i, slide_data in enumerate(slides_data):
+        log.debug(f"Processing slide {i+1}: {slide_data.get('title', 'Untitled')}")
         if not isinstance(slide_data, dict):
-            raise ValueError("Each slide must be a dictionary.")
+            log.warning(f"Slide data is not a dict, skipping slide {i+1}")
+            continue
 
         slide_title = slide_data.get("title", "Untitled")
         content_list = slide_data.get("content", [])
         if not isinstance(content_list, list):
             content_list = [content_list]
+        log.debug(f"Adding slide with title: '{slide_title}'")
+        slide = prs.slides.add_slide(content_layout)
 
-        slide_layout = prs.slide_layouts[1]
-        slide = prs.slides.add_slide(slide_layout)
+        if slide.shapes.title:
+            slide.shapes.title.text = slide_title
+            for p in slide.shapes.title.text_frame.paragraphs:
+                for r in p.runs:
+                    title_info = next(({'size': PptPt(int(child.attrib.get('sz', 2800))/100), 'bold': child.attrib.get('b', '0') == '1'} for child in content_layout.element.iter() if 'defRPr' in child.tag.split('}')[-1] and 'sz' in child.attrib), {'size': PptPt(28), 'bold': True})
 
-        title_shape = slide.shapes.title
-        title_shape.text = slide_title
-        for paragraph in title_shape.text_frame.paragraphs:
-            for run in paragraph.runs:
-                run.font.size = Pt(28)
-                run.font.bold = True
+                    r.font.size = title_info['size'] 
+                    r.font.bold = title_info['bold']
 
-        content_shape = slide.placeholders[1]
-        content_shape.text = ""  
-        font_size = dynamic_font_size(content_list, max_chars=300, base_size=24, min_size=12)
+        content_shape = None
+        try:
+            for ph in slide.placeholders:
+                try:
+                    if ph.placeholder_format.idx == 1:
+                        content_shape = ph; break
+                except Exception:
+                    pass
+            if content_shape is None:
+                for ph in slide.placeholders:
+                    try:
+                        if ph.placeholder_format.idx != 0:
+                            content_shape = ph; break
+                    except Exception:
+                        pass
+        except Exception:
+            log.error(f"Error finding content placeholder: {e}")
+            pass
 
-        for line in content_list:
-            p = content_shape.text_frame.add_paragraph()
-            run = p.add_run()
-            run.text = line
-            run.font.size = font_size
-            run.font.name = "Calibri"
-            p.space_after = Pt(6)
-        
+        title_bottom_in = 1.0 
+        if slide.shapes.title:
+            try:
+                title_bottom_emu = slide.shapes.title.top + slide.shapes.title.height
+                title_bottom_in = max(title_bottom_emu / EMU_PER_IN, 1.0)
+                title_bottom_in += 0.2
+            except Exception:
+                title_bottom_in = 1.2 
+
+        if content_shape is None:
+
+            content_shape = slide.shapes.add_textbox(Inches(page_margin), Inches(title_bottom_in), Inches(slide_w_in - 2*page_margin), Inches(slide_h_in - title_bottom_in - page_margin))
+            log.debug("Creating new textbox for content")
+        tf = content_shape.text_frame
+        try:
+            tf.clear()
+        except Exception:
+            log.error(f"Error clearing text frame: {e}")
+            pass
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        try:
+            tf.margin_left = Inches(0.1)
+            tf.margin_right = Inches(0.1)
+            tf.margin_top = Inches(0.05)
+            tf.margin_bottom = Inches(0.05)
+        except Exception:
+            pass
+
+        content_left_in, content_top_in = page_margin, title_bottom_in
+        content_width_in = slide_w_in - 2*page_margin
+        content_height_in = slide_h_in - (title_bottom_in + page_margin)
+
         image_query = slide_data.get("image_query")
         if image_query:
             image_url = search_image(image_query)
             if image_url:
-                image_data = requests.get(image_url).content
-                image_stream = BytesIO(image_data)
-                position = slide_data.get("image_position", "right")
-                size = slide_data.get("image_size", "medium")
-                if size == "small":
-                    width = Inches(2)
-                    height = Inches(1.5)
-                elif size == "large":
-                    width = Inches(4)
-                    height = Inches(3)
-                else:
-                    width = Inches(3)
-                    height = Inches(2)
-                if position == "left":
-                    left = Inches(0.5)
-                    top = Inches(1.5)
-                    content_shape.left = Inches(4.5)
-                    content_shape.top = Inches(1.5)
-                    content_shape.width = Inches(5)
-                    content_shape.height = Inches(4)
-                elif position == "right":
-                    left = Inches(5.5)
-                    top = Inches(1.5)
-                    content_shape.left = Inches(0.5)
-                    content_shape.top = Inches(1.5)
-                    content_shape.width = Inches(5)
-                    content_shape.height = Inches(4)
-                elif position == "top":
-                    left = Inches(5.5)
-                    top = Inches(0.5)
-                    content_shape.left = Inches(0.5)
-                    content_shape.top = Inches(2.5)
-                    content_shape.width = Inches(7)
-                    content_shape.height = Inches(3)
-                elif position == "bottom":
-                    left = Inches(5.5)
-                    top = Inches(4.5)
-                    content_shape.left = Inches(0.5)
-                    content_shape.top = Inches(0.5)
-                    content_shape.width = Inches(7)
-                    content_shape.height = Inches(3)
-                else:  
-                    left = Inches(5.5)
-                    top = Inches(1.5)
-                    content_shape.left = Inches(0.5)
-                    content_shape.top = Inches(1.5)
-                    content_shape.width = Inches(5)
-                    content_shape.height = Inches(4)
-                slide.shapes.add_picture(image_stream, left, top, width, height)
-        else:
-            content_shape.left = Inches(0.5)
-            content_shape.top = Inches(1.5)
-            content_shape.width = Inches(7)
-            content_shape.height = Inches(4)
-    prs.save(filepath)
-    if not persistent:
-        _cleanup_files(folder_path, FILES_DELAY)
-    return {"url": _public_url(folder_path, fname)}
+                log.debug(f"Searching for image query: '{image_query}'")
+                try:
+                    log.debug(f"Downloading image from URL: {image_url}")
+                    response = requests.get(image_url, timeout=30)
+                    response.raise_for_status()
+                    image_data = response.content
+                    image_stream = BytesIO(image_data)
+                    pos = slide_data.get("image_position", "right")
+                    size = slide_data.get("image_size", "medium")
+                    if size == "small":
+                        img_w_in, img_h_in = 2.0, 1.5
+                    elif size == "large":
+                        img_w_in, img_h_in = 4.0, 3.0
+                    else:
+                        img_w_in, img_h_in = 3.0, 2.0
+                    log.debug(f"Image dimensions: {img_w_in} x {img_h_in} inches")
 
-@mcp.tool()
-def create_word(content: list[dict], filename: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
-    folder_path = _generate_unique_folder()
-    filepath, fname = _generate_filename(folder_path, "docx", filename)
-    doc = Document()
-    
-    log.debug("Start creating Word document")
-    
-    for item in content:
-        log.debug(f"Treatment of the element : {item}")
+                    if pos == "left":
+                        img_left_in = page_margin
+                        img_top_in = title_bottom_in
+                        content_left_in = img_left_in + img_w_in + gutter
+                        content_top_in = title_bottom_in
+                        content_width_in = max(slide_w_in - page_margin - content_left_in, 2.5)
+                        content_height_in = slide_h_in - (title_bottom_in + page_margin)
+                    elif pos == "right":
+                        img_left_in = max(slide_w_in - page_margin - img_w_in, page_margin)
+                        img_top_in = title_bottom_in
+                        content_left_in = page_margin
+                        content_top_in = title_bottom_in
+                        content_width_in = max(img_left_in - gutter - content_left_in, 2.5)
+                        content_height_in = slide_h_in - (title_bottom_in + page_margin)
+                    elif pos == "top":
+                        img_left_in = slide_w_in - page_margin - img_w_in
+                        img_top_in = title_bottom_in
+                        content_left_in = page_margin
+                        content_top_in = img_top_in + img_h_in + gutter
+                        content_width_in = slide_w_in - 2*page_margin
+                        content_height_in = max(slide_h_in - page_margin - content_top_in, 2.0)
+                    elif pos == "bottom":
+                        img_left_in = slide_w_in - page_margin - img_w_in
+                        img_top_in = max(slide_h_in - page_margin - img_h_in, page_margin)
+                        content_left_in = page_margin
+                        content_top_in = title_bottom_in
+                        content_width_in = slide_w_in - 2*page_margin
+                        content_height_in = max(img_top_in - gutter - content_top_in, 2.0)
+                    else:
+                        img_left_in = max(slide_w_in - page_margin - img_w_in, page_margin)
+                        img_top_in = title_bottom_in
+                        content_left_in = page_margin
+                        content_top_in = title_bottom_in
+                        content_width_in = max(img_left_in - gutter - content_left_in, 2.5)
+                        content_height_in = slide_h_in - (title_bottom_in + page_margin)
+
+                    slide.shapes.add_picture(image_stream, Inches(img_left_in), Inches(img_top_in), Inches(img_w_in), Inches(img_h_in))
+                    log.debug(f"Image added at position: left={img_left_in}, top={img_top_in}")
+                except Exception:
+                    pass
+
+        try:
+            content_shape.left = Inches(content_left_in)
+            content_shape.top = Inches(content_top_in)
+            content_shape.width = Inches(content_width_in)
+            content_shape.height = Inches(content_height_in)
+        except Exception:
+            pass
+
+        approx_chars_per_in = 9.5
+        approx_lines_per_in = 1.6
+        safe_width = max(content_width_in, 0.1)
+        safe_height = max(content_height_in, 0.1)
+        est_capacity = int(safe_width * approx_chars_per_in * safe_height * approx_lines_per_in)
+        font_size = dynamic_font_size(content_list, max_chars=max(est_capacity, 120), base_size=24, min_size=12)
+
+        try:
+            tf = content_shape.text_frame
+        except Exception:
+            try:
+                tf = content_shape.text_frame
+            except Exception:
+                log.warning("Could not access text frame for content shape")
+                continue
+
+        if not tf.paragraphs:
+            tf.add_paragraph()
+        for idx, line in enumerate(content_list):
+            p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
+            run = p.add_run()
+            run.text = str(line) if line is not None else ""
+            run.font.size = font_size
+            p.space_after = PptPt(6)
+
+    prs.save(filepath)
+    return {"url": _public_url(folder_path, fname), "path": filepath}
+
+def _create_word(content: list[dict] | str, filename: str, folder_path: str | None = None, title: str | None = None) -> dict:
+    log.debug("Creating Word document")
+
+    if isinstance(content, str):
+        content = _convert_markdown_to_structured(content)
+    elif not isinstance(content, list):
+        content = []
+
+    if folder_path is None:
+        folder_path = _generate_unique_folder()
+    if filename:
+        filepath = os.path.join(folder_path, filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fname = filename
+    else:
+        filepath, fname = _generate_filename(folder_path, "docx")
+
+    use_template = False
+    doc = None
+
+    if DOCX_TEMPLATE:
+        try:
+            src = DOCX_TEMPLATE
+            if hasattr(DOCX_TEMPLATE, "paragraphs") and hasattr(DOCX_TEMPLATE, "save"):
+                buf = BytesIO()
+                DOCX_TEMPLATE.save(buf)
+                buf.seek(0)
+                src = buf
+
+            doc = Document(src)
+            use_template = True
+            log.debug("Using DOCX template")
+
+            for element in doc.element.body:
+                if element.tag.endswith('}p') or element.tag.endswith('}tbl'):
+                    doc.element.body.remove(element)
+
+        except Exception as e:
+            log.warning(f"Failed to load DOCX template: {e}")
+            use_template = False
+            doc = None
+
+    if not use_template:
+        doc = Document()
+        log.debug("Creating new Word document without template")
+
+    if title:
+        title_paragraph = doc.add_paragraph(title)
+        try:
+            title_paragraph.style = doc.styles['Title']
+        except KeyError:
+            try:
+                title_paragraph.style = doc.styles['Heading 1']
+            except KeyError:
+                run = title_paragraph.runs[0] if title_paragraph.runs else title_paragraph.add_run()
+                run.font.size = DocxPt(20)
+                run.font.bold = True
+        title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        log.debug("Document title added")
+
+    for item in content or []:
         if isinstance(item, str):
             doc.add_paragraph(item)
-            log.debug("Adding a single paragraph")
         elif isinstance(item, dict):
             if item.get("type") == "image_query":
                 new_item = {
@@ -757,12 +1123,22 @@ def create_word(content: list[dict], filename: str = None, persistent: bool = PE
                 item_type = item.get("type")
                 if item_type == "title":
                     paragraph = doc.add_paragraph(item.get("text", ""))
-                    paragraph.style = doc.styles['Heading 1']
+                    try:
+                        paragraph.style = doc.styles['Heading 1']
+                    except KeyError:
+                        run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
+                        run.font.size = DocxPt(18)
+                        run.font.bold = True
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     log.debug("Title added")
                 elif item_type == "subtitle":
                     paragraph = doc.add_paragraph(item.get("text", ""))
-                    paragraph.style = doc.styles['Heading 2']
+                    try:
+                        paragraph.style = doc.styles['Heading 2']
+                    except KeyError:
+                        run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
+                        run.font.size = DocxPt(16)
+                        run.font.bold = True
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     log.debug("Subtitle added")
                 elif item_type == "paragraph":
@@ -771,12 +1147,11 @@ def create_word(content: list[dict], filename: str = None, persistent: bool = PE
                 elif item_type == "list":
                     items = item.get("items", [])
                     for i, item_text in enumerate(items):
-                        if i == 0:
-                            paragraph = doc.add_paragraph(item_text)
+                        paragraph = doc.add_paragraph(item_text)
+                        try:
                             paragraph.style = doc.styles['List Bullet']
-                        else:
-                            paragraph = doc.add_paragraph(item_text)
-                            paragraph.style = doc.styles['List Bullet']
+                        except KeyError:
+                            paragraph.style = doc.styles['Normal']
                     log.debug("List added")
                 elif item_type == "image":
                     image_query = item.get("query")
@@ -793,321 +1168,182 @@ def create_word(content: list[dict], filename: str = None, persistent: bool = PE
                 elif item_type == "table":
                     data = item.get("data", [])
                     if data:
+                        template_table_style = None
+                        if use_template and DOCX_TEMPLATE:
+                            try:
+                                for table in DOCX_TEMPLATE.tables:
+                                    if table.style:
+                                        template_table_style = table.style
+                                        break
+                            except Exception:
+                                pass
+                        
                         table = doc.add_table(rows=len(data), cols=len(data[0]) if data else 0)
+                        
+                        if template_table_style:
+                            try:
+                                table.style = template_table_style
+                                log.debug(f"Applied template table style: {template_table_style.name}")
+                            except Exception as e:
+                                log.debug(f"Could not apply template table style: {e}")
+                        else:
+                            try:
+                                for style_name in ['Table Grid', 'Light Grid Accent 1', 'Medium Grid 1 Accent 1', 'Light List Accent 1']:
+                                    try:
+                                        table.style = doc.styles[style_name]
+                                        log.debug(f"Applied built-in table style: {style_name}")
+                                        break
+                                    except KeyError:
+                                        continue
+                            except Exception as e:
+                                log.debug(f"Could not apply any table style: {e}")
+                        
                         for i, row in enumerate(data):
                             for j, cell in enumerate(row):
-                                table.cell(i, j).text = str(cell)
-                        log.debug("Table added")
+                                cell_obj = table.cell(i, j)
+                                cell_obj.text = str(cell)
+                                
+                                if i == 0:
+                                    for paragraph in cell_obj.paragraphs:
+                                        for run in paragraph.runs:
+                                            run.font.bold = True
+                                        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        
+                        if not template_table_style:
+                            try:
+                                tbl = table._tbl
+                                tblPr = tbl.tblPr
+                                tblBorders = parse_xml(r'<w:tblBorders {}><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tblBorders>'.format(nsdecls('w')))
+                                tblPr.append(tblBorders)
+                            except Exception as e:
+                                log.debug(f"Could not add table borders: {e}")
+                        
+                        log.debug("Table added with improved styling")
             elif "text" in item:
                 doc.add_paragraph(item["text"])
                 log.debug("Paragraph added")
     
     doc.save(filepath)
-    log.debug(f"Document registered at : {filepath}")
-    
+    return {"url": _public_url(folder_path, fname), "path": filepath}
+
+def _create_raw_file(content: str, filename: str | None, folder_path: str | None = None) -> dict:
+    log.debug("Creating raw file")
+    if folder_path is None:
+        folder_path = _generate_unique_folder()
+
+    if filename:
+        filepath = os.path.join(folder_path, filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fname = filename
+    else:
+        filepath, fname = _generate_filename(folder_path, "txt")
+
+    if fname.lower().endswith(".xml") and isinstance(content, str) and not content.strip().startswith("<?xml"):
+        content = f'<?xml version="1.0" encoding="UTF-8"?>\n{content}'
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content or "")
+
+    return {"url": _public_url(folder_path, fname), "path": filepath}
+
+@mcp.tool()
+def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+    """
+    Use:
+    data = {
+      "format": "pdf|docx|pptx|xlsx|csv|txt|xml|py|cs|etc",
+      "filename": "name.ext",
+      "content": ...,
+      "slides_data": [...],
+      "title": "Optional title"
+    }
+    """
+    log.debug("Creating file via tool")
+    folder_path = _generate_unique_folder()
+    format_type = (data.get("format") or "").lower()
+    filename = data.get("filename")
+    content = data.get("content")
+    title = data.get("title")
+
+    if format_type == "pdf":
+        result = _create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
+    elif format_type == "pptx":
+        result = _create_presentation(data.get("slides_data", []), filename, folder_path=folder_path, title=title)
+    elif format_type == "docx":
+        result = _create_word(content if content is not None else [], filename, folder_path=folder_path, title=title)
+    elif format_type == "xlsx":
+        result = _create_excel(content if content is not None else [], filename, folder_path=folder_path, title=title)
+    elif format_type == "csv":
+        result = _create_csv(content if content is not None else [], filename, folder_path=folder_path)
+    else:
+        use_filename = filename or f"export.{format_type or 'txt'}"
+        result = _create_raw_file(content if content is not None else "", use_filename, folder_path=folder_path)
+
     if not persistent:
         _cleanup_files(folder_path, FILES_DELAY)
-        log.debug("Cleaning up temporary files")
-    
-    return {"url": _public_url(folder_path, fname)}
+
+    return {"url": result["url"]}
 
 @mcp.tool()
 def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+    """
+    files_data = [
+      {"format":"pdf","filename":"r1.pdf","content":[...],"title":"..."},
+      {"format":"pptx","filename":"slides.pptx","slides_data":[...],"title":"..."},
+      ...
+    ]
+    """
+    log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()
-    generated_files = []
-    for file_info in files_data:
-        filename = file_info.get("filename")
+    generated_paths: list[str] = []
+
+    for file_info in files_data or []:
+        fmt = (file_info.get("format") or "").lower()
+        fname = file_info.get("filename")
         content = file_info.get("content")
-        format_type = file_info.get("format")
-        title_param = file_info.get("title") 
-        if content is None:
-            content = ""    
-        if title_param is None:
-            title_param = ""
-        filepath = os.path.join(folder_path, filename)
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)  
+        title = file_info.get("title")
+
         try:
-            if format_type == "py" or format_type == "cs" or format_type == "txt":
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(content)
-            elif format_type == "pdf":
-                if isinstance(content, list):
-                    md_text = "\n".join(content)
-                else:
-                    md_text = content
-
-                def replace_image_query(match):
-                    query = match.group(1).strip()
-                    log.debug(f"Found image_query placeholder: '{query}'")
-                    image_url = search_image(query)
-                    if image_url:
-                        tag = f'<img src="{image_url}" alt="Image search: {query}" />'
-                        log.debug(f"Replaced image_query '{query}' with {image_url}")
-                    else:
-                        result_tag = ""
-                        log.warning(f"No image found for '{query}'")
-                    return tag
-
-                md_text = re.sub(r'!\[[^\]]*\]\(image_query:([^)]+)\)', replace_image_query, md_text)
-                log.debug(f"Markdown after replacement for {filename}:\n{md_text}")
-
-                html = markdown2.markdown(
-                    md_text,
-                    extras=[
-                        'fenced-code-blocks',
-                        'tables',
-                        'break-on-newline',
-                        'cuddled-lists',
-                    ]
-                )
-                log.debug(f"HTML generated for {filename}:\n{html}")
-
-                soup = BeautifulSoup(html, "html.parser")
-                story = render_html_elements(soup)
-
-                if not story:
-                    log.warning(f"Story empty for {filename}, adding fallback text.")
-                    story = [Paragraph("Empty Content", styles["CustomNormal"])]
-
-                doc = SimpleDocTemplate(
-                    filepath,
-                    topMargin=72,
-                    bottomMargin=72,
-                    leftMargin=72,
-                    rightMargin=72
-                )
-                try:
-                    doc.build(story)
-                    log.debug(f"PDF '{filename}' successfully created in the archive.")
-                except Exception as e:
-                    log.error(f"Error during PDF build for '{filename}': {e}", exc_info=True)
-                    fallback_story = [Paragraph("Error generating PDF", styles["CustomNormal"])]
-                    doc.build(fallback_story)
-            elif format_type == "xlsx":
-                wb = Workbook()
-                ws = wb.active
-                if isinstance(content, list):
-                    for row in content:
-                        ws.append(row)
-                wb.save(filepath)
-            elif format_type == "csv":
-                with open(filepath, "w", newline="", encoding="utf-8") as f:
-                    if isinstance(content, list):
-                        csv.writer(f).writerows(content)
-                    else:
-                        csv.writer(f).writerow([content])
-            elif format_type == "pptx":
-                parsed_content = file_info.get("slides_data", content)
-                if isinstance(parsed_content, str):
-                    try:
-                        parsed_content = ast.literal_eval(parsed_content)
-                        if not isinstance(parsed_content, list):
-                            raise ValueError("Parsed content is not a list")
-                    except (ValueError, SyntaxError):
-                        raise ValueError(
-                            f"Invalid format for pptx content: expected list of dicts, got '{type(parsed_content).__name__}'"
-                        )
-                elif not isinstance(parsed_content, list):
-                    raise ValueError(f"Invalid format for pptx content: expected list, got '{type(parsed_content).__name__}'")
-                prs = Presentation()
-                title_slide_layout = prs.slide_layouts[0]
-                slide = prs.slides.add_slide(title_slide_layout)
-                title_shape = slide.shapes.title
-                title_shape.text = title_param or "Presentation"
-                for slide_data in parsed_content:
-                    if not isinstance(slide_data, dict):
-                        raise ValueError("Each slide must be a dictionary.")
-                    title = slide_data.get("title", "Untitled")
-                    content_list = slide_data.get("content", [])
-                    if not isinstance(content_list, list):
-                        content_list = [content_list]
-                        
-                    slide_layout = prs.slide_layouts[1]
-                    slide = prs.slides.add_slide(slide_layout)
-                    
-                    title_shape = slide.shapes.title
-                    title_shape.text = title
-                    for paragraph in title_shape.text_frame.paragraphs:
-                        for run in paragraph.runs:
-                            run.font.size = Pt(28)
-                            run.font.bold = True
-                            
-                    content_shape = slide.placeholders[1]
-                    content_shape.text = ""
-                    font_size = dynamic_font_size(content_list, max_chars=300, base_size=24, min_size=12)
-
-                    for line in content_list:
-                        p = content_shape.text_frame.add_paragraph()
-                        run = p.add_run()
-                        run.text = line
-                        run.font.size = font_size
-                        p.space_after = Pt(6)
-                        
-                    image_query = slide_data.get("image_query")
-                    if image_query:
-                        image_url = search_image(image_query)
-                        if image_url:
-                            image_data = requests.get(image_url).content
-                            image_stream = BytesIO(image_data)
-                            position = slide_data.get("image_position", "right")
-                            size = slide_data.get("image_size", "medium")
-                            if size == "small":
-                                width = Inches(2)
-                                height = Inches(1.5)
-                            elif size == "large":
-                                width = Inches(4)
-                                height = Inches(3)
-                            else:
-                                width = Inches(3)
-                                height = Inches(2)
-                            if position == "left":
-                                left = Inches(0.5)
-                                top = Inches(1.5)
-                                content_shape.left = Inches(4.5)
-                                content_shape.top = Inches(1.5)
-                                content_shape.width = Inches(5)
-                                content_shape.height = Inches(4)
-                            elif position == "right":
-                                left = Inches(5.5)
-                                top = Inches(1.5)
-                                content_shape.left = Inches(0.5)
-                                content_shape.top = Inches(1.5)
-                                content_shape.width = Inches(5)
-                                content_shape.height = Inches(4)
-                            elif position == "top":
-                                left = Inches(5.5)
-                                top = Inches(0.5)
-                                content_shape.left = Inches(0.5)
-                                content_shape.top = Inches(2.5)
-                                content_shape.width = Inches(7)
-                                content_shape.height = Inches(3)
-                            elif position == "bottom":
-                                left = Inches(5.5)
-                                top = Inches(4.5)
-                                content_shape.left = Inches(0.5)
-                                content_shape.top = Inches(0.5)
-                                content_shape.width = Inches(7)
-                                content_shape.height = Inches(3)
-                            else:
-                                left = Inches(5.5)
-                                top = Inches(1.5)
-                                content_shape.left = Inches(0.5)
-                                content_shape.top = Inches(1.5)
-                                content_shape.width = Inches(5)
-                                content_shape.height = Inches(4)
-                            slide.shapes.add_picture(image_stream, left, top, width, height)
-                    else:
-                        content_shape.left = Inches(0.5)
-                        content_shape.top = Inches(1.5)
-                        content_shape.width = Inches(7)
-                        content_shape.height = Inches(4)
-                prs.save(filepath)
-            elif format_type == "docx":
-                doc = Document()
-                log.debug("Start creating Word document")
-                if isinstance(content, list):
-                    for item in content:
-                        log.debug(f"Treatment of the element : {item}")
-                        if isinstance(item, str):
-                            doc.add_paragraph(item)
-                            log.debug("Adding a single paragraph")
-                        elif isinstance(item, dict):
-                            if item.get("type") == "image_query":
-                                new_item = {
-                                    "type": "image",
-                                    "query": item.get("query")
-                                }
-                                image_query = new_item.get("query")
-                                if image_query:
-                                    log.debug(f"Image search for the query : {image_query}")
-                                    image_url = search_image(image_query)
-                                    if image_url:
-                                        response = requests.get(image_url)
-                                        image_data = BytesIO(response.content)
-                                        doc.add_picture(image_data, width=Inches(6))
-                                        log.debug("Image successfully added")
-                                    else:
-                                        log.warning(f"Failed image search for : '{image_query}'")
-                            elif "type" in item:
-                                item_type = item.get("type")
-                                if item_type == "title":
-                                    paragraph = doc.add_paragraph(item.get("text", ""))
-                                    paragraph.style = doc.styles['Heading 1']
-                                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                    log.debug("Title added")
-                                elif item_type == "subtitle":
-                                    paragraph = doc.add_paragraph(item.get("text", ""))
-                                    paragraph.style = doc.styles['Heading 2']
-                                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                    log.debug("Subtitle added")
-                                elif item_type == "paragraph":
-                                    doc.add_paragraph(item.get("text", ""))
-                                    log.debug("Paragraph added")
-                                elif item_type == "list":
-                                    items = item.get("items", [])
-                                    for i, item_text in enumerate(items):
-                                        if i == 0:
-                                            paragraph = doc.add_paragraph(item_text)
-                                            paragraph.style = doc.styles['List Bullet']
-                                        else:
-                                            paragraph = doc.add_paragraph(item_text)
-                                            paragraph.style = doc.styles['List Bullet']
-                                    log.debug("List added")
-                                elif item_type == "image":
-                                    image_query = item.get("query")
-                                    if image_query:
-                                        log.debug(f"Image search for the query : {image_query}")
-                                        image_url = search_image(image_query)
-                                        if image_url:
-                                            response = requests.get(image_url)
-                                            image_data = BytesIO(response.content)
-                                            doc.add_picture(image_data, width=Inches(6))
-                                            log.debug("Image successfully added")
-                                        else:
-                                            log.warning(f"Failed image search for : '{image_query}'")
-                                elif item_type == "table":
-                                    data = item.get("data", [])
-                                    if data:
-                                        table = doc.add_table(rows=len(data), cols=len(data[0]) if data else 0)
-                                        for i, row in enumerate(data):
-                                            for j, cell in enumerate(row):
-                                                table.cell(i, j).text = str(cell)
-                                        log.debug("Table added")
-                            elif "text" in item:
-                                doc.add_paragraph(item["text"])
-                                log.debug("Paragraph added")
-                else:
-                    doc.add_paragraph(str(content))
-                doc.save(filepath)
-                log.debug(f"Word document saved at : {filepath}")
+            if fmt == "pdf":
+                res = _create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)
+            elif fmt == "pptx":
+                res = _create_presentation(file_info.get("slides_data", []), fname, folder_path=folder_path, title=title)
+            elif fmt == "docx":
+                res = _create_word(content if content is not None else [], fname, folder_path=folder_path, title=title)
+            elif fmt == "xlsx":
+                res = _create_excel(content if content is not None else [], fname, folder_path=folder_path, title=title)
+            elif fmt == "csv":
+                res = _create_csv(content if content is not None else [], fname, folder_path=folder_path)
             else:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(content)
-            generated_files.append(filepath)
+                use_fname = fname or f"export.{fmt or 'txt'}"
+                res = _create_raw_file(content if content is not None else "", use_fname, folder_path=folder_path)
         except Exception as e:
-            log.error(f"Error processing file '{filename}': {e}")
-            raise 
+            log.error(f"Error generating file {fname or '<no name>'}: {e}", exc_info=True)
+            raise
+
+        generated_paths.append(res["path"])
+
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    archive_basename = f"{archive_name or 'archive'}_{timestamp}"
+    archive_filename = f"{archive_basename}.zip" if archive_format.lower() not in ("7z", "tar.gz") else f"{archive_basename}.{archive_format}"
+    archive_path = os.path.join(folder_path, archive_filename)
+
     if archive_format.lower() == "7z":
-        archive_filename = f"{archive_name or 'archive'}_{timestamp}.7z"
-        archive_path = os.path.join(folder_path, archive_filename)
         with py7zr.SevenZipFile(archive_path, mode='w') as archive:
-            for file_path in generated_files:
-                archive.write(file_path, os.path.relpath(file_path, folder_path))
+            for p in generated_paths:
+                archive.write(p, os.path.relpath(p, folder_path))
     elif archive_format.lower() == "tar.gz":
-        archive_filename = f"{archive_name or 'archive'}_{timestamp}.tar.gz"
-        archive_path = os.path.join(folder_path, archive_filename)
         with tarfile.open(archive_path, "w:gz") as tar:
-            for file_path in generated_files:
-                tar.add(file_path, arcname=os.path.relpath(file_path, folder_path))
-    else: 
-        archive_filename = f"{archive_name or 'archive'}_{timestamp}.zip"
-        archive_path = os.path.join(folder_path, archive_filename)
+            for p in generated_paths:
+                tar.add(p, arcname=os.path.relpath(p, folder_path))
+    else:
         with zipfile.ZipFile(archive_path, 'w') as zipf:
-            for file_path in generated_files:
-                zipf.write(file_path, os.path.relpath(file_path, folder_path))
+            for p in generated_paths:
+                zipf.write(p, os.path.relpath(p, folder_path))
+
     if not persistent:
         _cleanup_files(folder_path, FILES_DELAY)
+
     return {"url": _public_url(folder_path, archive_filename)}
 
 if __name__ == "__main__":

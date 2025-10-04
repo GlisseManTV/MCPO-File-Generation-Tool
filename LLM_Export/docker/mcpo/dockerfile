@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 RUN mkdir -p /rootPath
 COPY config.json /rootPath
 COPY tools /rootPath/tools
+COPY templates /rootPath/templates
 
 ENTRYPOINT []
 CMD mcpo --type http --host 0.0.0.0 --port 8000 --config /rootPath/config.json --api-key ${MCPO_API_KEY:-top-secret}
