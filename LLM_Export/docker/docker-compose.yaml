@@ -36,6 +36,7 @@ services:
       - PEXELS_ACCESS_KEY=""
     ports:
       - "8000:8000"
+      - "9004:9004" # Optional, only if you want to use the SSE HTTP server
     restart: unless-stopped
     volumes:
       - /your/export-data:/output
