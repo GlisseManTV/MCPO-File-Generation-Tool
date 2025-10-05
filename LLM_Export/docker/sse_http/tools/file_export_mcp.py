@@ -1257,14 +1257,12 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 @mcp.tool()
 def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """
-    Use:
-    data = {
-      "format": "pdf|docx|pptx|xlsx|csv|txt|xml|py|cs|etc",
-      "filename": "name.ext",
-      "content": ...,
-      "slides_data": [...],
-      "title": "Optional title"
-    }
+    {"format": "pdf", "filename": "report.pdf", "content": [{"type": "title", "text": "..."}, {"type": "paragraph", "text": "..."}], "title": "..."}
+    {"format": "docx", "filename": "doc.docx", "content": [{"type": "title", "text": "..."}, {"type": "list", "items": [...]}], "title": "..."}
+    {"format": "pptx", "filename": "slides.pptx", "slides_data": [{"title": "...", "content": [...], "image_query": "..."}], "title": "..."}
+    {"format": "xlsx", "filename": "data.xlsx", "content": [["Header1", "Header2"], ["Val1", "Val2"]], "title": "..."}
+    {"format": "csv", "filename": "data.csv", "content": [[...]]}
+    {"format": "txt|xml|py|etc", "filename": "file.ext", "content": "string"}
     """
     log.debug("Creating file via tool")
     folder_path = _generate_unique_folder()
@@ -1296,9 +1294,13 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
 def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """
     files_data = [
-      {"format":"pdf","filename":"r1.pdf","content":[...],"title":"..."},
-      {"format":"pptx","filename":"slides.pptx","slides_data":[...],"title":"..."},
-      ...
+        {"format": "pdf", "filename": "report.pdf", "content": [{"type": "title", "text": "..."}, {"type": "paragraph", "text": "..."}], "title": "..."}
+        {"format": "docx", "filename": "doc.docx", "content": [{"type": "title", "text": "..."}, {"type": "list", "items": [...]}], "title": "..."}
+        {"format": "pptx", "filename": "slides.pptx", "slides_data": [{"title": "...", "content": [...], "image_query": "..."}], "title": "..."}
+        {"format": "xlsx", "filename": "data.xlsx", "content": [["Header1", "Header2"], ["Val1", "Val2"]], "title": "..."}
+        {"format": "csv", "filename": "data.csv", "content": [[...]]}
+        {"format": "txt|xml|py|etc", "filename": "file.ext", "content": "string"}
+        ...
     ]
     """
     log.debug("Generating archive via tool")
