@@ -1,12 +1,10 @@
 import re
 import os
 import ast
-import csv
 import json
 import uuid
 import emoji
 import time
-import asyncio
 import base64
 import datetime
 import tarfile
@@ -18,8 +16,6 @@ from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
 import tempfile
-import uvicorn
-from typing import Any
 from PIL import Image
 from docx import Document
 from docx.shared import Inches
@@ -30,12 +26,8 @@ from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
-from starlette.requests import Request
-from starlette.applications import Starlette
-from starlette.routing import Route, Mount
-from starlette.responses import Response, JSONResponse
 from openpyxl import Workbook, load_workbook
+import csv
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
@@ -47,6 +39,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
+
+URL = os.getenv('OWUI_URL')
+TOKEN = os.getenv('JWT_SECRET')
 
 PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
@@ -675,7 +670,7 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
                 if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
                     cell.value = title
                     from openpyxl.styles import Font
-                    log.debug(f"Title '{title}' remplacé dans la cellule {get_column_letter(cell.column)}{cell.row} contenant 'title'")
+                    log.debug(f"Title '{title}' remplacï¿½ dans la cellule {get_column_letter(cell.column)}{cell.row} contenant 'title'")
                     title_cell_found = True
                     break
             if title_cell_found:
@@ -1256,6 +1251,170 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
         f.write(content or "")
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
+
+def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+    """
+    Upload a file to OpenWebUI server.
+    """
+    url = f"{URL}/api/v1/files/"
+    headers = {
+        'Authorization': f'Bearer {TOKEN}',
+        'Accept': 'application/json'
+    }
+    
+    with open(file_path, 'rb') as f:
+        files = {'file': f}
+        response = requests.post(url, headers=headers, files=files)
+
+    if response.status_code != 200:
+        return {"error": {"message": f'Error uploading file: {response.status_code}'}}
+    else:
+        return {
+            "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
+        }
+
+def download_file(file_id: str) -> BytesIO:
+    """
+    Download a file from OpenWebUI server.
+    """
+    url = f"{URL}/api/v1/files/{file_id}/content"
+    headers = {
+        'Authorization': f'Bearer {TOKEN}',
+        'Accept': 'application/json'
+    }
+    
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code != 200:
+        return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
+    else:
+        return BytesIO(response._content)
+
+@mcp.tool(
+    name="full_context_docx",
+    title="Return the structure of a docx document",
+    description="Return the index, style and text of each element in a docx document. This includes paragraphs, headings, tables, images, and other components. The output is a JSON object that provides a detailed representation of the document's structure and content."
+)
+def full_context_docx(
+    file_id: str,
+    file_name: str
+) -> dict:
+    """
+    Return the structure of a docx document including index, style, and text of each element.
+    Returns:
+        dict: A JSON object with the structure of the document.
+    """
+    try:
+        docx_file = download_file(file_id)
+
+        if isinstance(docx_file, dict) and "error" in docx_file:
+            return json.dumps(
+                docx_file,
+                indent=4,
+                ensure_ascii=False
+            )
+        else:
+            doc = Document(docx_file)
+            
+            text_body = {
+                "file_name": file_name,
+                "file_id": file_id,
+                "body": []
+            }
+
+            parts = []
+
+            for idx, parts in enumerate(doc.paragraphs):
+                text = parts.text.strip()
+
+                if not text:
+                    continue  
+
+                style = parts.style.name  
+                text_body["body"].append({
+                    "index": idx,
+                    "style": style ,
+                    "text": text
+                })
+
+            return json.dumps(
+                text_body,
+                indent=4,
+                ensure_ascii=False
+            )
+    except Exception as e:
+        return json.dumps(
+            {
+                "error": {
+                    "message": str(e)
+                }
+            }, 
+            indent=4, 
+            ensure_ascii=False
+        )
+
+@mcp.tool(
+    name="review_docx",
+    title="Review and comment on docx document",
+    description="Review an existing docx document, perform corrections (spelling, grammar, style suggestions, idea enhancements), and add comments to cells."
+)
+def review_docx(
+    file_id: str,
+    file_name: str,
+    review_comments: list[tuple[int, str]]
+) -> dict:
+    """
+    Review an existing docx document and add comments to specified elements.
+    Returns:
+        dict: Contains 'file_path_download' with a markdown hyperlink for downloading the reviewed docx file.
+    """
+    if not os.path.exists('/app/temp'):
+        os.makedirs('/app/temp')
+    try:
+        
+        docx_file = download_file(file_id)
+        if isinstance(docx_file, dict) and "error" in docx_file:
+            return json.dumps(docx_file, indent=4, ensure_ascii=False)
+
+        doc = Document(docx_file)
+
+
+        paragraphs = list(doc.paragraphs)
+        for index, comment_text in review_comments:
+            if 0 <= index < len(paragraphs):
+                para = paragraphs[index]
+                if para.runs: 
+                    doc.add_comment(
+                        runs=[para.runs[0]],
+                        text=comment_text,
+                        author="AI Reviewer",
+                        initials="AI"
+                    )
+
+        reviewed_path = f'/app/temp/{os.path.splitext(file_name)[0]}_reviewed_{uuid.uuid4()}.docx'
+        doc.save(reviewed_path)
+
+        response = upload_file(
+            file_path=reviewed_path,
+            filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+            file_type="docx"
+        )
+
+        import shutil
+        shutil.rmtree('/app/temp', ignore_errors=True)
+
+        return response
+    
+    except Exception as e:
+        return json.dumps(
+            {
+                "error": {
+                    "message": str(e)
+                }
+            }, 
+            indent=4, 
+            ensure_ascii=False
+        )
 
 @mcp.tool()
 def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
