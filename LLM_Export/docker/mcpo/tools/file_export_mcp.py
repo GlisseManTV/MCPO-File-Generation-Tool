@@ -1,9 +1,11 @@
 import re
 import os
 import ast
+import csv
 import json
 import uuid
 import emoji
+import math
 import time
 import base64
 import shutil
@@ -29,7 +31,6 @@ from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
-import csv
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
@@ -1292,8 +1293,9 @@ def download_file(file_id: str) -> BytesIO:
 @mcp.tool(
     name="full_context_document",
     title="Return the structure of a document (docx, xlsx, pptx)",
-    description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). The function detects the file type from the extension and processes it accordingly. For docx: returns paragraphs, headings, tables, images. For xlsx: returns sheet names, cell values, and formulas. For pptx: returns slide titles, content, and image queries."
+    description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
+
 def full_context_document(
     file_id: str,
     file_name: str
@@ -1308,149 +1310,147 @@ def full_context_document(
         user_file = download_file(file_id)
 
         if isinstance(user_file, dict) and "error" in user_file:
-            return json.dumps(
-                user_file,
-                indent=4,
-                ensure_ascii=False
-            )
+            return json.dumps(user_file, indent=4, ensure_ascii=False)
 
         file_extension = os.path.splitext(file_name)[1].lower()
         file_type = file_extension.lstrip('.')
 
+        structure = {
+            "file_name": file_name,
+            "file_id": file_id,
+            "type": file_type,
+            "body": []
+        }
+        index_counter = 1
+
         if file_type == "docx":
             doc = Document(user_file)
-            structure = {
-                "file_name": file_name,
-                "file_id": file_id,
-                "type": "docx",
-                "body": []
-            }
 
-            for idx, para in enumerate(doc.paragraphs):
+            for para in doc.paragraphs:
                 text = para.text.strip()
                 if not text:
                     continue
                 style = para.style.name
+                element_type = "heading" if style.startswith("Heading") else "paragraph"
                 structure["body"].append({
-                    "index": idx,
-                    "type": "paragraph",
+                    "index": index_counter,
+                    "type": element_type,
                     "style": style,
                     "text": text
                 })
+                index_counter += 1
 
-            for idx, para in enumerate(doc.paragraphs):
-                if para.style.name.startswith("Heading"):
-                    text = para.text.strip()
-                    if text:
-                        structure["body"].append({
-                            "index": idx,
-                            "type": "heading",
-                            "level": para.style.name.replace("Heading ", ""),
-                            "text": text
-                        })
-
-            for idx, table in enumerate(doc.tables):
-                table_data = []
+            for table in doc.tables:
+                table_text = []
                 for row in table.rows:
-                    row_data = [cell.text.strip() for cell in row.cells]
-                    table_data.append(row_data)
-                structure["body"].append({
-                    "index": idx,
-                    "type": "table",
-                    "data": table_data
-                })
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    if row_text:
+                        table_text.append(row_text)
+                if table_text:
+                    structure["body"].append({
+                        "index": index_counter,
+                        "type": "table",
+                        "style": "Table",
+                        "text": "\n".join(table_text)
+                    })
+                    index_counter += 1
 
-            for idx, shape in enumerate(doc.inline_shapes):
+            for shape in doc.inline_shapes:
                 structure["body"].append({
-                    "index": idx,
+                    "index": index_counter,
                     "type": "image",
-                    "description": f"Image inline {idx}"
+                    "style": "InlineImage",
+                    "text": f"Image inline {index_counter}"
                 })
-
-            return json.dumps(structure, indent=4, ensure_ascii=False)
+                index_counter += 1
 
         elif file_type == "xlsx":
             wb = load_workbook(user_file, read_only=True, data_only=True)
-            structure = {
-                "file_name": file_name,
-                "file_id": file_id,
-                "type": "xlsx",
-                "sheets": []
-            }
 
             for sheet_name in wb.sheetnames:
                 sheet = wb[sheet_name]
-                sheet_data = {
-                    "name": sheet_name,
-                    "rows": [],
-                    "cell_count": 0
-                }
-
-                for row in sheet.iter_rows(values_only=True):
-                    row_data = []
-                    for cell in row:
-                        row_data.append(str(cell) if cell is not None else "")
-                    sheet_data["rows"].append(row_data)
-                    sheet_data["cell_count"] += len(row_data)
-
-                structure["sheets"].append(sheet_data)
-
-            return json.dumps(structure, indent=4, ensure_ascii=False)
+                for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    for col_idx, cell in enumerate(row, start=1):
+                        if cell is None or str(cell).strip() == "":
+                            continue
+                        col_letter = sheet.cell(row=row_idx, column=col_idx).column_letter
+                        cell_ref = f"{col_letter}{row_idx}"
+                        structure["body"].append({
+                            "index": cell_ref,
+                            "type": "cell",
+                            "text": str(cell)
+                        })
+                        index_counter += 1
 
         elif file_type == "pptx":
             prs = Presentation(user_file)
-            structure = {
-                "file_name": file_name,
-                "file_id": file_id,
-                "type": "pptx",
-                "slides": []
-            }
-
-            for idx, slide in enumerate(prs.slides):
-                slide_data = {
-                    "index": idx,
-                    "title": slide.shapes.title.text if slide.shapes.title else "",
-                    "content": [],
-                    "images": [],
-                    "placeholders": []
-                }
+            for slide_idx, slide in enumerate(prs.slides, start=0):
+                if slide_idx == 0:
+                    continue
+                title = slide.shapes.title.text.strip() if slide.shapes.title and slide.shapes.title.text else ""
+                if title:
+                    structure["body"].append({
+                        "index": slide_idx,
+                        "type": "heading",
+                        "style": f"Slide {slide_idx} Title",
+                        "text": title
+                    })
+                    index_counter += 1
 
                 for shape in slide.shapes:
-                    if hasattr(shape, "text_frame") and shape.text_frame.text.strip():
-                        text = shape.text_frame.text.strip()
-                        slide_data["content"].append(text)
+                    if hasattr(shape, "text_frame") and shape.text_frame and shape.text_frame.text.strip():
+                        structure["body"].append({
+                            "index": slide_idx,
+                            "type": "paragraph",
+                            "style": f"Slide {slide_idx} Content",
+                            "text": shape.text_frame.text.strip()
+                        })
+                        index_counter += 1
 
                     if hasattr(shape, "image"):
-                        slide_data["images"].append({
-                            "index": len(slide_data["images"]),
-                            "description": "Image"
+                        structure["body"].append({
+                            "index": slide_idx,
+                            "type": "image",
+                            "style": f"Slide {slide_idx} Image",
+                            "text": f"Image on slide {slide_idx}"
                         })
-
-                structure["slides"].append(slide_data)
-
-            return json.dumps(structure, indent=4, ensure_ascii=False)
+                        index_counter += 1
 
         else:
-            return json.dumps(
-                {
-                    "error": {
-                        "message": f"Unsupported file type: {file_type}. Only docx, xlsx, and pptx are supported."
-                    }
-                },
-                indent=4,
-                ensure_ascii=False
-            )
+            return json.dumps({
+                "error": {"message": f"Unsupported file type: {file_type}. Only docx, xlsx, and pptx are supported."}
+            }, indent=4, ensure_ascii=False)
+
+        return json.dumps(structure, indent=4, ensure_ascii=False)
 
     except Exception as e:
-        return json.dumps(
-            {
-                "error": {
-                    "message": str(e)
-                }
-            },
-            indent=4,
-            ensure_ascii=False
-        )
+        return json.dumps({"error": {"message": str(e)}}, indent=4, ensure_ascii=False)
+
+def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
+    """
+    Adds a note to an Excel cell, adjusting the width and height
+    so that all the text is visible.
+    """
+    if not text:
+        return
+
+    avg_char_width = 7
+    px_per_line = 15
+    base_width = 200
+    max_width = 500
+    min_height = 40
+
+    width = min(max_width, base_width + len(text) * 2)
+    chars_per_line = max(1, width // avg_char_width)
+    lines = 0
+    for paragraph in text.split('\n'):
+        lines += math.ceil(len(paragraph) / chars_per_line)
+    height = max(min_height, lines * px_per_line)
+
+    comment = Comment(text, author)
+    comment.width = width
+    comment.height = height
+    cell.comment = comment
 
 @mcp.tool(
     name="review_document",
@@ -1460,30 +1460,30 @@ def full_context_document(
 def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int, str]]
+    review_comments: list[tuple[int | str, str]]
 ) -> dict:
     """
     Generic document review function that works with different document types.
     File type is automatically detected from the file extension.
     Returns a markdown hyperlink for downloading the reviewed document.
+    For Excel files (.xlsx), the index must always be a cell reference (e.g. "A1", "B3", "C10"),
+    corresponding to the "index" key returned by the full_context_document() function.
+    Never use integer values for Excel cells.
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
 
     try:
-        # Télécharger le fichier utilisateur
         user_file = download_file(file_id)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
-        # Détection du type de fichier
         file_extension = os.path.splitext(file_name)[1].lower()
         file_type = file_extension.lstrip('.')
 
         reviewed_path = None
         response = None
 
-        # --- DOCX ---
         if file_type == "docx":
             try:
                 doc = Document(user_file)
@@ -1493,7 +1493,6 @@ def review_document(
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
                         if para.runs:
-                            # Certains environnements n'ont pas add_comment(), on l'ignore silencieusement
                             try:
                                 doc.add_comment(
                                     runs=[para.runs[0]],
@@ -1502,8 +1501,7 @@ def review_document(
                                     initials="AI"
                                 )
                             except Exception:
-                                # Alternative simple : ajouter un texte "[Commentaire]" dans le paragraphe
-                                para.add_run(f"  [Commentaire AI: {comment_text}]")
+                                para.add_run(f"  [AI Comment: {comment_text}]")
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
                 )
@@ -1514,9 +1512,8 @@ def review_document(
                     file_type="docx"
                 )
             except Exception as e:
-                raise Exception(f"Erreur lors de la révision DOCX: {e}")
+                raise Exception(f"Error during DOCX revision: {e}")
 
-        # --- XLSX ---
         elif file_type == "xlsx":
             try:
                 wb = load_workbook(user_file)
@@ -1524,19 +1521,19 @@ def review_document(
 
                 for index, comment_text in review_comments:
                     try:
-                        # Validation de la référence de cellule
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
                         elif isinstance(index, int):
-                            # Fallback pour index numérique → "A{index+1}"
                             cell_ref = f"A{index+1}"
                         else:
                             cell_ref = "A1"
 
-                        ws[cell_ref].comment = Comment(comment_text, "AI Reviewer")
+                        cell = ws[cell_ref]
+                        add_auto_sized_review_comment(cell, comment_text, author="AI Reviewer")
+
                     except Exception:
-                        # En cas d'erreur, on met le commentaire dans A1
-                        ws["A1"].comment = Comment(comment_text, "AI Reviewer")
+                        fallback_cell = ws["A1"]
+                        add_auto_sized_review_comment(fallback_cell, comment_text, author="AI Reviewer")
 
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.xlsx"
@@ -1548,9 +1545,8 @@ def review_document(
                     file_type="xlsx"
                 )
             except Exception as e:
-                raise Exception(f"Erreur lors de la révision XLSX: {e}")
+                raise Exception(f"Error: {e}")
 
-        # --- PPTX ---
         elif file_type == "pptx":
             try:
                 prs = Presentation(user_file)
@@ -1558,7 +1554,6 @@ def review_document(
                 for index, comment_text in review_comments:
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
                         slide = prs.slides[index]
-                        # On simule un commentaire en ajoutant une textbox discrète
                         left = top = Inches(0.2)
                         width = Inches(4)
                         height = Inches(1)
@@ -1566,7 +1561,7 @@ def review_document(
                         text_frame = textbox.text_frame
                         p = text_frame.add_paragraph()
                         p.text = f"AI Reviewer: {comment_text}"
-                        p.font.size = Pt(10)
+                        p.font.size = PptPt(10)
 
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
@@ -1578,18 +1573,16 @@ def review_document(
                     file_type="pptx"
                 )
             except Exception as e:
-                raise Exception(f"Erreur lors de la révision PPTX: {e}")
+                raise Exception(f"Error when revising PPTX: {e}")
 
         else:
-            raise Exception(f"Type de fichier non pris en charge : {file_type}")
+            raise Exception(f"File type not supported : {file_type}")
 
-        # Nettoyage du dossier temporaire
         shutil.rmtree(temp_folder, ignore_errors=True)
 
         return response
 
     except Exception as e:
-        # En cas d'erreur globale
         shutil.rmtree(temp_folder, ignore_errors=True)
         return json.dumps(
             {"error": {"message": str(e)}},
