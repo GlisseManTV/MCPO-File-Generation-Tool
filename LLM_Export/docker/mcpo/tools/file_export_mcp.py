@@ -1288,11 +1288,11 @@ def download_file(file_id: str) -> BytesIO:
         return BytesIO(response._content)
 
 @mcp.tool(
-    name="full_context_docx",
+    name="full_context_document",
     title="Return the structure of a document (docx, xlsx, pptx)",
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). The function detects the file type from the extension and processes it accordingly. For docx: returns paragraphs, headings, tables, images. For xlsx: returns sheet names, cell values, and formulas. For pptx: returns slide titles, content, and image queries."
 )
-def full_context_docx(
+def full_context_document(
     file_id: str,
     file_name: str
 ) -> dict:
