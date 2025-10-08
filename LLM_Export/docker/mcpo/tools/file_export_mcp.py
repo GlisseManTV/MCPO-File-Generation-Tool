@@ -6,6 +6,7 @@ import uuid
 import emoji
 import time
 import base64
+import shutil
 import datetime
 import tarfile
 import zipfile
@@ -27,6 +28,7 @@ from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 import csv
 from pptx import Presentation
 from pptx.util import Inches
@@ -1465,99 +1467,133 @@ def review_document(
     File type is automatically detected from the file extension.
     Returns a markdown hyperlink for downloading the reviewed document.
     """
-    if not os.path.exists('/app/temp'):
-        os.makedirs('/app/temp')
+temp_folder = f"/app/temp/{uuid.uuid4()}"
+    os.makedirs(temp_folder, exist_ok=True)
+
     try:
+        # Télécharger le fichier utilisateur
         user_file = download_file(file_id)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
-        
+
+        # Détection du type de fichier
         file_extension = os.path.splitext(file_name)[1].lower()
         file_type = file_extension.lstrip('.')
-        
-        if file_type == "docx":
-            doc = Document(user_file)
-            paragraphs = list(doc.paragraphs)
-            for index, comment_text in review_comments:
-                if 0 <= index < len(paragraphs):
-                    para = paragraphs[index]
-                    if para.runs:
-                        doc.add_comment(
-                            runs=[para.runs[0]],
-                            text=comment_text,
-                            author="AI Reviewer",
-                            initials="AI"
-                        )
-            reviewed_path = f'/app/temp/{os.path.splitext(file_name)[0]}_reviewed_{uuid.uuid4()}.docx'
-            doc.save(reviewed_path)
-            response = upload_file(
-                file_path=reviewed_path,
-                filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                file_type="docx"
-            )
-            
-        elif file_type == "xlsx":
-            from openpyxl import load_workbook
-            
-            wb = load_workbook(user_file)
-            
-            for index, comment_text in review_comments:
-                try:
-                    if isinstance(index, str) and index.upper().replace(" ", "").isalnum():
-                        cell_ref = index.upper().replace(" ", "")
-                    else:
 
-                        row = index // 26 + 1
-                        col = index % 26
-                        col_letter = chr(ord('A') + col)
-                        cell_ref = f"{col_letter}{row}"
-                    
-                    ws = wb.active
-                    if cell_ref:
-                        ws[cell_ref].comment = openpyxl.comments.Comment(comment_text, "AI Reviewer")
-                except Exception as e:
+        reviewed_path = None
+        response = None
+
+        # --- DOCX ---
+        if file_type == "docx":
+            try:
+                doc = Document(user_file)
+                paragraphs = list(doc.paragraphs)
+
+                for index, comment_text in review_comments:
+                    if isinstance(index, int) and 0 <= index < len(paragraphs):
+                        para = paragraphs[index]
+                        if para.runs:
+                            # Certains environnements n'ont pas add_comment(), on l'ignore silencieusement
+                            try:
+                                doc.add_comment(
+                                    runs=[para.runs[0]],
+                                    text=comment_text,
+                                    author="AI Reviewer",
+                                    initials="AI"
+                                )
+                            except Exception:
+                                # Alternative simple : ajouter un texte "[Commentaire]" dans le paragraphe
+                                para.add_run(f"  [Commentaire AI: {comment_text}]")
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
+                )
+                doc.save(reviewed_path)
+                response = upload_file(
+                    file_path=reviewed_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+                    file_type="docx"
+                )
+            except Exception as e:
+                raise Exception(f"Erreur lors de la révision DOCX: {e}")
+
+        # --- XLSX ---
+        elif file_type == "xlsx":
+            try:
+                wb = load_workbook(user_file)
+                ws = wb.active
+
+                for index, comment_text in review_comments:
                     try:
-                        ws = wb.active
-                        ws["A1"].comment = openpyxl.comments.Comment(comment_text, "AI Reviewer")
+                        # Validation de la référence de cellule
+                        if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
+                            cell_ref = index.strip().upper()
+                        elif isinstance(index, int):
+                            # Fallback pour index numérique → "A{index+1}"
+                            cell_ref = f"A{index+1}"
+                        else:
+                            cell_ref = "A1"
+
+                        ws[cell_ref].comment = Comment(comment_text, "AI Reviewer")
                     except Exception:
-                        pass
-            
-            reviewed_path = f'/app/temp/{os.path.splitext(file_name)[0]}_reviewed_{uuid.uuid4()}.xlsx'
-            wb.save(reviewed_path)
-            
-            response = upload_file(
-                file_path=reviewed_path,
-                filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                file_type="xlsx"
-            )
-            
+                        # En cas d'erreur, on met le commentaire dans A1
+                        ws["A1"].comment = Comment(comment_text, "AI Reviewer")
+
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.xlsx"
+                )
+                wb.save(reviewed_path)
+                response = upload_file(
+                    file_path=reviewed_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+                    file_type="xlsx"
+                )
+            except Exception as e:
+                raise Exception(f"Erreur lors de la révision XLSX: {e}")
+
+        # --- PPTX ---
         elif file_type == "pptx":
-            prs = Presentation(user_file)
-            
-            for index, comment_text in review_comments:
-                if 0 <= index < len(prs.slides):
-                    slide = prs.slides[index]
-                    pass
-            reviewed_path = f'/app/temp/{os.path.splitext(file_name)[0]}_reviewed_{uuid.uuid4()}.pptx'
-            prs.save(reviewed_path)
-            response = upload_file(
-                file_path=reviewed_path,
-                filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                file_type="pptx"
-            )
-            
-        import shutil
-        shutil.rmtree('/app/temp', ignore_errors=True)
+            try:
+                prs = Presentation(user_file)
+
+                for index, comment_text in review_comments:
+                    if isinstance(index, int) and 0 <= index < len(prs.slides):
+                        slide = prs.slides[index]
+                        # On simule un commentaire en ajoutant une textbox discrète
+                        left = top = Inches(0.2)
+                        width = Inches(4)
+                        height = Inches(1)
+                        textbox = slide.shapes.add_textbox(left, top, width, height)
+                        text_frame = textbox.text_frame
+                        p = text_frame.add_paragraph()
+                        p.text = f"AI Reviewer: {comment_text}"
+                        p.font.size = Pt(10)
+
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
+                )
+                prs.save(reviewed_path)
+                response = upload_file(
+                    file_path=reviewed_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+                    file_type="pptx"
+                )
+            except Exception as e:
+                raise Exception(f"Erreur lors de la révision PPTX: {e}")
+
+        else:
+            raise Exception(f"Type de fichier non pris en charge : {file_type}")
+
+        # Nettoyage du dossier temporaire
+        shutil.rmtree(temp_folder, ignore_errors=True)
+
         return response
-    
+
     except Exception as e:
+        # En cas d'erreur globale
+        shutil.rmtree(temp_folder, ignore_errors=True)
         return json.dumps(
-            {
-                "error": {
-                    "message": str(e)
-                }
-            }, 
-            indent=4, 
+            {"error": {"message": str(e)}},
+            indent=4,
             ensure_ascii=False
         )
 
