@@ -1467,7 +1467,7 @@ def review_document(
     File type is automatically detected from the file extension.
     Returns a markdown hyperlink for downloading the reviewed document.
     """
-temp_folder = f"/app/temp/{uuid.uuid4()}"
+    temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
 
     try:
