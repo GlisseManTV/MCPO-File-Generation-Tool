@@ -43,6 +43,8 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
+SCRIPT_VERSION = "0.7.0"
+
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
 
@@ -1681,4 +1683,5 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
     return {"url": _public_url(folder_path, archive_filename)}
 
 if __name__ == "__main__":
+    log.info(f"File Export MCP v{VERSION} démarré")
     mcp.run()

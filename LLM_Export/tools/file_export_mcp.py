@@ -53,6 +53,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse
 
+SCRIPT_VERSION = "0.7.0"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1868,6 +1869,8 @@ app = Starlette(
 
 if __name__ == "__main__":
     import sys
+    
+    log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
     
     if "--sse" in sys.argv or "--http" in sys.argv:
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
