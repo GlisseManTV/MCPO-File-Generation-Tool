@@ -1,11 +1,14 @@
 import re
 import os
 import ast
+import csv
 import json
 import uuid
 import emoji
+import math
 import time
 import base64
+import shutil
 import datetime
 import tarfile
 import zipfile
@@ -27,7 +30,7 @@ from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
 from mcp.server.fastmcp import FastMCP
 from openpyxl import Workbook, load_workbook
-import csv
+from openpyxl.comments import Comment
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
@@ -39,6 +42,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
+
+SCRIPT_VERSION = "0.7.0"
+
+URL = os.getenv('OWUI_URL')
+TOKEN = os.getenv('JWT_SECRET')
 
 PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
@@ -1246,14 +1254,352 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
+def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+    """
+    Upload a file to OpenWebUI server.
+    """
+    url = f"{URL}/api/v1/files/"
+    headers = {
+        'Authorization': f'Bearer {TOKEN}',
+        'Accept': 'application/json'
+    }
+    
+    with open(file_path, 'rb') as f:
+        files = {'file': f}
+        response = requests.post(url, headers=headers, files=files)
+
+    if response.status_code != 200:
+        return {"error": {"message": f'Error uploading file: {response.status_code}'}}
+    else:
+        return {
+            "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
+        }
+
+def download_file(file_id: str) -> BytesIO:
+    """
+    Download a file from OpenWebUI server.
+    """
+    url = f"{URL}/api/v1/files/{file_id}/content"
+    headers = {
+        'Authorization': f'Bearer {TOKEN}',
+        'Accept': 'application/json'
+    }
+    
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code != 200:
+        return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
+    else:
+        return BytesIO(response._content)
+
+@mcp.tool(
+    name="full_context_document",
+    title="Return the structure of a document (docx, xlsx, pptx)",
+    description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
+)
+
+def full_context_document(
+    file_id: str,
+    file_name: str
+) -> dict:
+    """
+    Return the structure of a document (docx, xlsx, pptx) based on its file extension.
+    The function detects the file type and processes it accordingly.
+    Returns:
+        dict: A JSON object with the structure of the document.
+    """
+    try:
+        user_file = download_file(file_id)
+
+        if isinstance(user_file, dict) and "error" in user_file:
+            return json.dumps(user_file, indent=4, ensure_ascii=False)
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        file_type = file_extension.lstrip('.')
+
+        structure = {
+            "file_name": file_name,
+            "file_id": file_id,
+            "type": file_type,
+            "body": []
+        }
+        index_counter = 1
+
+        if file_type == "docx":
+            doc = Document(user_file)
+
+            for para in doc.paragraphs:
+                text = para.text.strip()
+                if not text:
+                    continue
+                style = para.style.name
+                element_type = "heading" if style.startswith("Heading") else "paragraph"
+                structure["body"].append({
+                    "index": index_counter,
+                    "type": element_type,
+                    "style": style,
+                    "text": text
+                })
+                index_counter += 1
+
+            for table in doc.tables:
+                table_text = []
+                for row in table.rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    if row_text:
+                        table_text.append(row_text)
+                if table_text:
+                    structure["body"].append({
+                        "index": index_counter,
+                        "type": "table",
+                        "style": "Table",
+                        "text": "\n".join(table_text)
+                    })
+                    index_counter += 1
+
+            for shape in doc.inline_shapes:
+                structure["body"].append({
+                    "index": index_counter,
+                    "type": "image",
+                    "style": "InlineImage",
+                    "text": f"Image inline {index_counter}"
+                })
+                index_counter += 1
+
+        elif file_type == "xlsx":
+            wb = load_workbook(user_file, read_only=True, data_only=True)
+
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    for col_idx, cell in enumerate(row, start=1):
+                        if cell is None or str(cell).strip() == "":
+                            continue
+                        col_letter = sheet.cell(row=row_idx, column=col_idx).column_letter
+                        cell_ref = f"{col_letter}{row_idx}"
+                        structure["body"].append({
+                            "index": cell_ref,
+                            "type": "cell",
+                            "text": str(cell)
+                        })
+                        index_counter += 1
+
+        elif file_type == "pptx":
+            prs = Presentation(user_file)
+            for slide_idx, slide in enumerate(prs.slides, start=0):
+                if slide_idx == 0:
+                    continue
+                title = slide.shapes.title.text.strip() if slide.shapes.title and slide.shapes.title.text else ""
+                if title:
+                    structure["body"].append({
+                        "index": slide_idx,
+                        "type": "heading",
+                        "style": f"Slide {slide_idx} Title",
+                        "text": title
+                    })
+                    index_counter += 1
+
+                for shape in slide.shapes:
+                    if hasattr(shape, "text_frame") and shape.text_frame and shape.text_frame.text.strip():
+                        structure["body"].append({
+                            "index": slide_idx,
+                            "type": "paragraph",
+                            "style": f"Slide {slide_idx} Content",
+                            "text": shape.text_frame.text.strip()
+                        })
+                        index_counter += 1
+
+                    if hasattr(shape, "image"):
+                        structure["body"].append({
+                            "index": slide_idx,
+                            "type": "image",
+                            "style": f"Slide {slide_idx} Image",
+                            "text": f"Image on slide {slide_idx}"
+                        })
+                        index_counter += 1
+
+        else:
+            return json.dumps({
+                "error": {"message": f"Unsupported file type: {file_type}. Only docx, xlsx, and pptx are supported."}
+            }, indent=4, ensure_ascii=False)
+
+        return json.dumps(structure, indent=4, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": {"message": str(e)}}, indent=4, ensure_ascii=False)
+
+def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
+    """
+    Adds a note to an Excel cell, adjusting the width and height
+    so that all the text is visible.
+    """
+    if not text:
+        return
+
+    avg_char_width = 7
+    px_per_line = 15
+    base_width = 200
+    max_width = 500
+    min_height = 40
+
+    width = min(max_width, base_width + len(text) * 2)
+    chars_per_line = max(1, width // avg_char_width)
+    lines = 0
+    for paragraph in text.split('\n'):
+        lines += math.ceil(len(paragraph) / chars_per_line)
+    height = max(min_height, lines * px_per_line)
+
+    comment = Comment(text, author)
+    comment.width = width
+    comment.height = height
+    cell.comment = comment
+
+@mcp.tool(
+    name="review_document",
+    title="Review and comment on various document types",
+    description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
+)
+def review_document(
+    file_id: str,
+    file_name: str,
+    review_comments: list[tuple[int | str, str]]
+) -> dict:
+    """
+    Generic document review function that works with different document types.
+    File type is automatically detected from the file extension.
+    Returns a markdown hyperlink for downloading the reviewed document.
+    For Excel files (.xlsx), the index must always be a cell reference (e.g. "A1", "B3", "C10"),
+    corresponding to the "index" key returned by the full_context_document() function.
+    Never use integer values for Excel cells.
+    """
+    temp_folder = f"/app/temp/{uuid.uuid4()}"
+    os.makedirs(temp_folder, exist_ok=True)
+
+    try:
+        user_file = download_file(file_id)
+        if isinstance(user_file, dict) and "error" in user_file:
+            return json.dumps(user_file, indent=4, ensure_ascii=False)
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        file_type = file_extension.lstrip('.')
+
+        reviewed_path = None
+        response = None
+
+        if file_type == "docx":
+            try:
+                doc = Document(user_file)
+                paragraphs = list(doc.paragraphs)
+
+                for index, comment_text in review_comments:
+                    if isinstance(index, int) and 0 <= index < len(paragraphs):
+                        para = paragraphs[index]
+                        if para.runs:
+                            try:
+                                doc.add_comment(
+                                    runs=[para.runs[0]],
+                                    text=comment_text,
+                                    author="AI Reviewer",
+                                    initials="AI"
+                                )
+                            except Exception:
+                                para.add_run(f"  [AI Comment: {comment_text}]")
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
+                )
+                doc.save(reviewed_path)
+                response = upload_file(
+                    file_path=reviewed_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+                    file_type="docx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during DOCX revision: {e}")
+
+        elif file_type == "xlsx":
+            try:
+                wb = load_workbook(user_file)
+                ws = wb.active
+
+                for index, comment_text in review_comments:
+                    try:
+                        if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
+                            cell_ref = index.strip().upper()
+                        elif isinstance(index, int):
+                            cell_ref = f"A{index+1}"
+                        else:
+                            cell_ref = "A1"
+
+                        cell = ws[cell_ref]
+                        add_auto_sized_review_comment(cell, comment_text, author="AI Reviewer")
+
+                    except Exception:
+                        fallback_cell = ws["A1"]
+                        add_auto_sized_review_comment(fallback_cell, comment_text, author="AI Reviewer")
+
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.xlsx"
+                )
+                wb.save(reviewed_path)
+                response = upload_file(
+                    file_path=reviewed_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+                    file_type="xlsx"
+                )
+            except Exception as e:
+                raise Exception(f"Error: {e}")
+
+        elif file_type == "pptx":
+            try:
+                prs = Presentation(user_file)
+
+                for index, comment_text in review_comments:
+                    if isinstance(index, int) and 0 <= index < len(prs.slides):
+                        slide = prs.slides[index]
+                        left = top = Inches(0.2)
+                        width = Inches(4)
+                        height = Inches(1)
+                        textbox = slide.shapes.add_textbox(left, top, width, height)
+                        text_frame = textbox.text_frame
+                        p = text_frame.add_paragraph()
+                        p.text = f"AI Reviewer: {comment_text}"
+                        p.font.size = PptPt(10)
+
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
+                )
+                prs.save(reviewed_path)
+                response = upload_file(
+                    file_path=reviewed_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_reviewed",
+                    file_type="pptx"
+                )
+            except Exception as e:
+                raise Exception(f"Error when revising PPTX: {e}")
+
+        else:
+            raise Exception(f"File type not supported : {file_type}")
+
+        shutil.rmtree(temp_folder, ignore_errors=True)
+
+        return response
+
+    except Exception as e:
+        shutil.rmtree(temp_folder, ignore_errors=True)
+        return json.dumps(
+            {"error": {"message": str(e)}},
+            indent=4,
+            ensure_ascii=False
+        )
+
 @mcp.tool()
 def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
-    """{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}
-{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}
-{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}
-{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."}
-{"format":"csv","filename":"data.csv","content":[[...]]}
-{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}"""
+    """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
+"{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
+"{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
+"{"data": {"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."}}"
+"{"data": {"format":"csv","filename":"data.csv","content":[[...]]}}"
+"{"data": {"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}}" """
     log.debug("Creating file via tool")
     folder_path = _generate_unique_folder()
     format_type = (data.get("format") or "").lower()
@@ -1337,4 +1683,5 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
     return {"url": _public_url(folder_path, archive_filename)}
 
 if __name__ == "__main__":
+    log.info(f"Starting  File Export builtin MCPO v{SCRIPT_VERSION}")
     mcp.run()
