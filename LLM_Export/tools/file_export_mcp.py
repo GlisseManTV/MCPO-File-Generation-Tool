@@ -50,8 +50,8 @@ from typing import Any
 from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.applications import Starlette
-from starlette.routing import Route, Mount
-from starlette.responses import Response, JSONResponse
+from starlette.routing import Route, Mount 
+from starlette.responses import Response, JSONResponse 
 
 SCRIPT_VERSION = "0.7.0"
 

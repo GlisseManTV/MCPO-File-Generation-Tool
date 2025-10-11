@@ -1683,5 +1683,5 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
     return {"url": _public_url(folder_path, archive_filename)}
 
 if __name__ == "__main__":
-    log.info(f"File Export MCP v{VERSION} démarré")
+    log.info(f"File Export MCP v{SCRIPT_VERSION} démarré")
     mcp.run()
