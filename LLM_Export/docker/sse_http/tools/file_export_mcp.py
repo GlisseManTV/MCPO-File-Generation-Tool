@@ -1888,6 +1888,5 @@ if __name__ == "__main__":
             use_colors=False
         )
     else:
-        log.info("Starting file_export_mcp in stdio mode")
-        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
         mcp.run()
