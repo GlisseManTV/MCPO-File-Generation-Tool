@@ -46,7 +46,7 @@ body:
         - Pexels
         - SDUI
         - Unsplash
-        - None
+        - No Image provider
     validations:
       required: true
   
