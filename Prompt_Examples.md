@@ -91,10 +91,8 @@ I got good results with the following prompt:
 ### Office document revision (.docx or .xlsx or .pptx)
 If the user asks you to review a Word document with comments:
 **Review workflow (mandatory):**
-  1. **Always call `get_files_metadata` first** → to get the exact file name and GUID of the active `document` (.docx or .xlsx or .pptx).
-    If ambiguous, ask the user.
-  2. Call `tool_full_context_document_post` → to retrieve element indices.
-  3. Call `tool_review_document_post` → pass the list of tuples `(element_index, comment)`.
+  1. Call `tool_full_context_document_post` → to retrieve element indices.
+  2. Call `tool_review_document_post` → pass the list of tuples `(element_index, comment)`.
     Never add extra content in step 3.
     For XLSX files, use the "index" field (e.g., "B3") to reference cells in `tool_review_document_post`.
 ```

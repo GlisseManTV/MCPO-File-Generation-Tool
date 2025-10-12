@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir \
 COPY config.json /rootPath
 COPY tools /rootPath/tools
 COPY templates /rootPath/templates
+COPY functions /rootPath/functions
 
 RUN mkdir -p /rootPath/output
 
