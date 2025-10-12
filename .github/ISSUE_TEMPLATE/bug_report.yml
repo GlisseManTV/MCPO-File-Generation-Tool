@@ -1,64 +1,49 @@
-name: Bug Report
-description: File a bug report.
-title: "[Bug]: "
-labels: ["bug", "triage"]
-projects: ["octo-org/1", "octo-org/44"]
-assignees:
-  - octocat
-body:
-  - type: markdown
-    attributes:
-      value: |
-        Thanks for taking the time to fill out this bug report!
-  - type: input
-    id: contact
-    attributes:
-      label: Contact Details
-      description: How can we get in touch with you if we need more info?
-      placeholder: ex. email@example.com
-    validations:
-      required: false
-  - type: textarea
-    id: what-happened
-    attributes:
-      label: What happened?
-      description: Also tell us, what did you expect to happen?
-      placeholder: Tell us what you see!
-      value: "A bug happened!"
-    validations:
-      required: true
-  - type: dropdown
-    id: version
-    attributes:
-      label: Version
-      description: What version of our software are you running?
-      options:
-        - 1.0.2 (Default)
-        - 1.0.3 (Edge)
-      default: 0
-    validations:
-      required: true
-  - type: dropdown
-    id: browsers
-    attributes:
-      label: What browsers are you seeing the problem on?
-      multiple: true
-      options:
-        - Firefox
-        - Chrome
-        - Safari
-        - Microsoft Edge
-  - type: textarea
-    id: logs
-    attributes:
-      label: Relevant log output
-      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
-      render: shell
-  - type: checkboxes
-    id: terms
-    attributes:
-      label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://example.com). 
-      options:
-        - label: I agree to follow this project's Code of Conduct
-          required: true
+---
+name: 🐞 Bug Report
+about: Report a bug in the application
+title: '[BUG] '
+labels: bug
+assignees: ''
+
+---
+
+## 🧩 Used Way
+- [ ] SSE
+- [ ] Python
+- [ ] Built in mcpo
+
+### If SSE, what type of call?
+- [ ] Direct in Open WebUI (0.6.33+)
+- [ ] External MCP server
+  - Which one? _________
+
+## 🖼️ Image Provider
+- [ ] Pexels
+- [ ] Sdui
+- [ ] Unsplash
+- [ ] None
+
+## 🌿 Branch
+- [ ] latest
+- [ ] Dev-latest
+
+## ✅ Checklist
+- [ ] I have used the example prompt
+- [ ] I have read the recommendations
+- [ ] I have searched for open tickets
+
+## 📝 Description
+What is happening?
+
+## 🔁 How to Reproduce
+Steps to reproduce the behavior:
+1. Go to '...'
+2. Click on '...'
+3. Scroll down to '...'
+4. See error
+
+## 🎯 Expected Behavior
+What should have happened?
+
+## 📎 Logs & Screenshots
+Attach any relevant logs, error messages, or screenshots here.
