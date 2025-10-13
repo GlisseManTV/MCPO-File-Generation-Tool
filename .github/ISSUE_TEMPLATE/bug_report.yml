@@ -61,6 +61,15 @@ body:
       default: 0
     validations:
       required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version are you using?
+      placeholder: ex. v0.7.0
+    validations:
+      required: true
   
   - type: checkboxes
     id: pre-submission-checks
