@@ -245,6 +245,47 @@ To enable revision, you must:
 
 ---
 
+## 📌 Document Review Support (v0.7.0+)
+
+A major enhancement in **v0.7.0** introduces **native document revision support** for Word, Excel, and PowerPoint files — enabling AI-powered editing directly within the chat.
+
+### ✅ Supported Formats & Methods
+
+| Format       | Revision Method                     | Notes |
+|--------------|-------------------------------------|-------|
+| **.docx**    | Native Word comments                | Fully compatible with Microsoft Word and other editors |
+| **.xlsx**    | Legacy cell notes (comments)        | Preserves original metadata and structure |
+| **.pptx**    | Top-of-slide TextBox (simulated)    | Visual feedback without breaking layout |
+
+> 💡 **How it works**:
+> 1. Receive file metadata in the chat  
+> 2. Tool detects document type  
+> 3. AI analyzes full context and generates edits  
+> 4. Changes are applied and returned via download URL  
+> 5. Temporary file is automatically deleted  
+
+✅ **No manual file handling required** — everything is seamless.
+
+---
+
+### 🛠️ Required Setup for Document Review
+
+To enable revision, you must:
+
+1. **Add the `Files Metadata Injector Function`**  
+   - Available here: [Files Metadata Injector • Open WebUI Community](https://openwebui.com/f/gaetan/files_metadata_injector)  
+   - Or place it in your tool's `functions/` directory (Docker path: `/rootPath/functions`)
+
+2. **Set two new environment variables**:
+   ```env
+   OWUI_URL=https://myAI.myDomain.com
+   JWT_SECRET=your_api_key_or_jwt_token
+   ```
+   - `OWUI_URL`: Your Open WebUI instance URL (e.g., `http://localhost:3000` or `https://openwebui.yourdomain.com`)
+   - `JWT_SECRET`: Generated from **User Settings > API Keys** in Open WebUI
+
+---
+
 ## 📦 Supported File Types
 
 - ✅ `.xlsx` (Excel)
