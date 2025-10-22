@@ -43,7 +43,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.7.0"
+SCRIPT_VERSION = "0.8.0-alpha"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1453,6 +1453,127 @@ def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
     comment.width = width
     comment.height = height
     cell.comment = comment
+
+@mcp.tool()
+def edit_document(
+    file_id: str,
+    file_name: str,
+    edits: list[tuple[int | str, str]]
+) -> dict:
+    """
+    Edits an existing document of various types (docx, xlsx, pptx).
+    The index must be an integer for docx and pptx, or a cell reference for xlsx.
+    The text is the new content to replace the original.
+    Returns a markdown hyperlink for downloading the edited document.
+    """
+    temp_folder = f"/app/temp/{uuid.uuid4()}"
+    os.makedirs(temp_folder, exist_ok=True)
+
+    try:
+        user_file = download_file(file_id)
+        if isinstance(user_file, dict) and "error" in user_file:
+            return json.dumps(user_file, indent=4, ensure_ascii=False)
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        file_type = file_extension.lstrip('.')
+
+        edited_path = None
+        response = None
+
+        if file_type == "docx":
+            try:
+                doc = Document(user_file)
+                paragraphs = list(doc.paragraphs)
+
+                for index, new_text in edits:
+                    if isinstance(index, int) and 0 <= index < len(paragraphs):
+                        para = paragraphs[index]
+                        para.clear()
+                        para.add_run(new_text)
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
+                )
+                doc.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="docx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during DOCX editing: {e}")
+
+        elif file_type == "xlsx":
+            try:
+                wb = load_workbook(user_file)
+                ws = wb.active
+
+                for index, new_text in edits:
+                    try:
+                        if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
+                            cell_ref = index.strip().upper()
+                        elif isinstance(index, int):
+                            cell_ref = f"A{index+1}"
+                        else:
+                            cell_ref = "A1"
+
+                        cell = ws[cell_ref]
+                        cell.value = new_text
+                    except Exception:
+                        fallback_cell = ws["A1"]
+                        fallback_cell.value = new_text
+
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.xlsx"
+                )
+                wb.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="xlsx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during XLSX editing: {e}")
+
+        elif file_type == "pptx":
+            try:
+                prs = Presentation(user_file)
+
+                for index, new_text in edits:
+                    if isinstance(index, int) and 0 <= index < len(prs.slides):
+                        slide = prs.slides[index]
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text_frame") and shape.text_frame:
+                                shape.text_frame.clear()
+                                p = shape.text_frame.add_paragraph()
+                                p.text = new_text
+                                break 
+
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.pptx"
+                )
+                prs.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="pptx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during PPTX editing: {e}")
+
+        else:
+            raise Exception(f"File type not supported: {file_type}")
+
+        shutil.rmtree(temp_folder, ignore_errors=True)
+
+        return response
+
+    except Exception as e:
+        shutil.rmtree(temp_folder, ignore_errors=True)
+        return json.dumps(
+            {"error": {"message": str(e)}},
+            indent=4,
+            ensure_ascii=False
+        )
 
 @mcp.tool(
     name="review_document",
