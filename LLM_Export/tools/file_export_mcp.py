@@ -51,7 +51,7 @@ from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount 
-from starlette.responses import Response, JSONResponse 
+from starlette.responses import Response, JSONResponse, StreamingResponse 
 
 SCRIPT_VERSION = "0.7.0"
 
@@ -1821,19 +1821,16 @@ async def handle_sse(request: Request) -> Response:
             )
     
     else:
-        async def event_generator():
-            async with SseServerTransport("/messages") as (read_stream, write_stream):
-                try:
-                    await mcp._mcp_server.run(
-                        read_stream,
-                        write_stream,
-                        mcp._mcp_server.create_initialization_options()
-                    )
-                except Exception as e:
-                    log.error(f"SSE Error: {e}", exc_info=True)
+        # Упрощенный SSE endpoint - возвращаем простой ответ
+        async def simple_event_generator():
+            yield "data: {\"type\": \"connected\", \"message\": \"MCP Server Ready\"}\n\n"
+            # Отправляем heartbeat каждые 30 секунд
+            while True:
+                await asyncio.sleep(30)
+                yield "data: {\"type\": \"heartbeat\", \"timestamp\": \"" + str(int(time.time())) + "\"}\n\n"
         
         return StreamingResponse(
-            event_generator(),
+            simple_event_generator(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -1868,25 +1865,27 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    import sys
- 
-    if "--sse" in sys.argv or "--http" in sys.argv:
-        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
-        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+    # import sys
+    
+    mcp.run(transport='sse')
+
+    # if "--sse" in sys.argv or "--http" in sys.argv:
+    #     port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+    #     host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
         
-        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
-        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
-        log.info(f"SSE endpoint: http://{host}:{port}/sse")
-        log.info(f"Messages endpoint: http://{host}:{port}/messages")
+    #     log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+    #     log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
+    #     log.info(f"SSE endpoint: http://{host}:{port}/sse")
+    #     log.info(f"Messages endpoint: http://{host}:{port}/messages")
         
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            access_log=False,
-            log_level="info",
-            use_colors=False
-        )
-    else:
-        log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
-        mcp.run()
+    #     uvicorn.run(
+    #         app,
+    #         host=host,
+    #         port=port,
+    #         access_log=False,
+    #         log_level="info",
+    #         use_colors=False
+    #     )
+    # else:
+    #     log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
+    #     mcp.run()
