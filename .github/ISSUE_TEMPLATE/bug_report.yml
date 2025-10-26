@@ -1,0 +1,124 @@
+name: Bug Report
+description: File a bug report for the project.
+title: "[BUG] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Please provide as much detail as possible to help us resolve the issue.
+  
+  - type: dropdown
+    id: used-way
+    attributes:
+      label: Used Way
+      description: How are you using the service?
+      options:
+        - SSE
+        - Python
+        - Built in MCPO
+    validations:
+      required: true
+  
+  - type: dropdown
+    id: sse-call-type
+    attributes:
+      label: SSE Call Type
+      description: If you selected SSE above, what type of call are you using?
+      options:
+        - Direct in Open WebUI (0.6.33+)
+        - External MCP server
+  
+  - type: input
+    id: external-server
+    attributes:
+      label: External MCP Server
+      description: If you selected "External MCP server" above, please specify which server you are using.
+      placeholder: ex. server-name or URL
+  
+  - type: dropdown
+    id: image-provider
+    attributes:
+      label: Image Provider
+      description: Which image provider are you using?
+      options:
+        - Pexels
+        - SDUI
+        - Unsplash
+        - No Image provider
+    validations:
+      required: true
+  
+  - type: dropdown
+    id: branch
+    attributes:
+      label: Branch
+      description: Which branch are you using?
+      options:
+        - latest
+        - dev-latest
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version are you using?
+      placeholder: ex. v0.7.0
+    validations:
+      required: true
+  
+  - type: checkboxes
+    id: pre-submission-checks
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting your bug report.
+      options:
+        - label: I have used the example prompt
+          required: false
+        - label: I have read the recommendations
+          required: false
+        - label: I have searched existing open issues
+          required: false
+  
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug you encountered.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+  
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: How to reproduce?
+      description: Provide step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+  
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: What should happen?
+      description: Describe what you expected to happen instead.
+      placeholder: Tell us what the expected behavior is.
+    validations:
+      required: true
+  
+  - type: textarea
+    id: logs-screenshots
+    attributes:
+      label: Logs & Screenshots
+      description: Please provide any relevant log output or screenshots. Logs will be automatically formatted into code.
+      placeholder: Paste logs or drag and drop screenshots here.
+      render: shell

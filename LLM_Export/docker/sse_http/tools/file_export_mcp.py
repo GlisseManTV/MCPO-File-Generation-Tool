@@ -50,8 +50,8 @@ from typing import Any
 from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.applications import Starlette
-from starlette.routing import Route, Mount 
-from starlette.responses import Response, JSONResponse 
+from starlette.routing import Route, Mount
+from starlette.responses import Response, JSONResponse
 
 SCRIPT_VERSION = "0.7.0"
 
@@ -61,9 +61,8 @@ TOKEN = os.getenv('JWT_SECRET')
 PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
-DEFAULT_PATH_ENV = os.getenv("PYTHONPATH", r"").rstrip("/")
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
-EXPORT_DIR = (EXPORT_DIR_ENV or os.path.join(DEFAULT_PATH_ENV, "output")).rstrip("/")
+EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
 BASE_URL_ENV = os.getenv("FILE_EXPORT_BASE_URL")
@@ -74,9 +73,7 @@ LOG_FORMAT_ENV = os.getenv(
     "LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s"
 )
 
-DOCS_TEMPLATE_DIR_ENV = os.getenv("DOCS_TEMPLATE_DIR")
-DOCS_TEMPLATE_PATH = ((DOCS_TEMPLATE_DIR_ENV or os.path.join(DEFAULT_PATH_ENV, "templates")).rstrip("/"))
-os.makedirs(DOCS_TEMPLATE_PATH, exist_ok=True)
+DOCS_TEMPLATE_PATH = os.getenv("DOCS_TEMPLATE_DIR", "/rootPath/templates")
 PPTX_TEMPLATE = None
 DOCX_TEMPLATE = None
 XLSX_TEMPLATE = None
@@ -118,7 +115,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
     
-    XLSX_TEMPLATE_PATH = os.path.join(DEFAULT_PATH_ENV, "templates", "Default_Template.xlsx")
+    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
         try:
@@ -683,9 +680,9 @@ def _create_excel(data: list[list[str]], filename: str, folder_path: str | None 
         for row in ws.iter_rows():
             for cell in row:
                 if cell.value and isinstance(cell.value, str) and "title" in cell.value.lower():
-                    cell.value = title
+                    cell.value = title 
                     from openpyxl.styles import Font
-                    log.debug(f"Title '{title}' replaced in cell {get_column_letter(cell.column)}{cell.row} containing 'title'")
+                    log.debug(f"Title '{title}' replaced in the cell {get_column_letter(cell.column)}{cell.row} containing  'title'")
                     title_cell_found = True
                     break
             if title_cell_found:
@@ -1694,6 +1691,9 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
         _cleanup_files(folder_path, FILES_DELAY)
 
     return {"url": _public_url(folder_path, archive_filename)}
+
+if __name__ == "__main__":
+    mcp.run()
 
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""

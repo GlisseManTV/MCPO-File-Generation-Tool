@@ -1,0 +1,13 @@
+openpyxl
+reportlab
+mcp
+py7zr
+fastapi
+uvicorn
+python-multipart
+markdown2
+beautifulsoup4
+emoji
+python-pptx
+python-docx
+requests

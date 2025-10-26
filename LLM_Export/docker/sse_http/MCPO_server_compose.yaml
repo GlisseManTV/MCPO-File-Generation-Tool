@@ -1,0 +1,11 @@
+services:
+  mcpo:
+    build: .
+    ports:
+      - mcpo 
+    volumes:
+      - [Path where you put "LLM_Export" Folder]:/rootPath
+      - [path to output]:/output
+    command: |
+      mcpo --api-key top-secret --config /rootPath/config.json
+networks: {}

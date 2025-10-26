@@ -6,68 +6,95 @@
 
 I got good results with the following prompt:
 ```
-📂 File generation (`file_export` tool)  
-  - Available tools :  
-     - `create_excel(data, filename, persistent=True)` → array → `.xlsx` file.  
-     - `create_csv(data, filename, persistent=True)` → array → `.csv` file.  
-     - `create_pdf(text, filename, persistent=True)` → list of paragraphs → file `.pdf`.  
-     - `create_file(content, filename, persistent=True)` → raw content → any text file (`.py`, `.cs`, `.html`, `.css`, `.json`, `.xml`, `.txt`, `.md`, etc.).  
-     - `create_presentation(slides_data, filename, persistent=True, title)` → list of slides → `.pptx` file.
-     - `generate_and_archive(files_data, archive_format="zip", archive_name=None, persistent=True)` → **generate several files of various types and archive them in a `.zip`, `.tar.gz` or `.7z`** file.  
-  - Rules :  
-     - Always choose the right tool for the extension required.  
-     - Never mix several formats in the same file.  
-     - For `.xml`: if the declaration `<?xml ...?>` is missing, it will be added automatically.  
-     - Absolute rules for archive generation:
-     - **Absolute ban** on using individual file creation functions (such as `create_file`, `create_excel`, `create_pdf`, etc.) **when an archive is requested**.     
-     - Uniquely**, the `generate_and_archive` function must be used for all archive requests (`.zip`, `.tar.gz`, `.7z`).
-     - This function **must** be used **exclusively** to create **all files** requested **in a single operation**, without separate pre-generation.
-     - No file should be created via an individual function before `generate_and_archive`**: each file is generated **directly within** this function.
-     - The archive is **created from files generated in the same request**, without repeating or referring to pre-existing files.
-     - Any attempt to create files upstream (via `create_file`, `create_csv`, etc.) **is strictly forbidden** in the case of an archive.
-     - This rule takes **priority** over all others: if an archive is requested, all other creation functions are blocked.
-     - **For `create_presentation`** :  
-          - Each slide can include an optional `image_query` field which specifies a keyword to search for an image via the Unsplash API.  
-          - The LLM must provide **only** the data required to create the presentation:  
-             - `title` : Title of the slide  
-             - content" : List or string of content text  
-             - image_query (optional): Image search keyword (e.g. `"computer science"`).  
-             - image_position` (optional): Position of the image in relation to the text (left, right, top, bottom).  
-             - image_size` (optional): Image size (`"small"`, `"medium"`, `"large"`).  
-          - If `image_query` is provided, an image will be automatically searched via Unsplash and inserted into the slide with the specified positioning.  
-          - The system automatically adjusts the text area to avoid overlapping with the image.  
-          - Important** : The `content` field must always be a list of text strings, even if it contains a single item.  
-     - **For `create_pdf`** :  
-          - Content can include images generated from Unsplash requests via the special syntax :  
-             - `![Search](image_query: nature landscape)`  
-             - `![Search](image_query: technology innovation)`  
-          - Images are retrieved automatically from Unsplash with the specified search parameters.  
-          - The system automatically manages the integration of images into the PDF with appropriate formatting.  
-     - **For `create_word`**:
-          - Each element of the document can include an optional `image_query` field which specifies a keyword to search for an image via the Unsplash API.
-          - The LLM must provide **only** the data required to create the Word document:
-             - `type`: Type of element (`"title"`, `"subtitle"`, `"paragraph"`, `"list"`, `"image"`, `"table"`)
-             - text`: Text content of the element (for types "title", "subtitle", "paragraph")
-             - items`: List of elements for lists (for the "list" type)
-             - query`: Image search keyword (for the "image" type)
-             - data`: Table data (for the "table" type)
-          - If the `image` type is provided, an image will automatically be searched for via Unsplash and inserted into the document.
-          - The system automatically applies the default Word styles (Heading 1, Heading 2, List Bullet, etc.).
-          - **Important**: The `content` field must always be a dictionary list, even if it contains a single item.
-     - **For `generate_and_archive`** :  
-        - Accepts a list of `files_data` objects, each object containing :  
-          - `filename` (file name, with extension corresponding to the `format`)
-          - content` (raw content or array, depending on the type)  
-          - `format` (type of file: `py`, `cs`, `html`, `json`, `xml`, `txt`, `md`, `xlsx`, `csv`, `pdf`, `pptx`, etc.) The format must correspond to the extension of the `filename`.
-        - Archive all files in a single `.zip`, `.tar.gz` or `.7z` file (chosen via `archive_format`).
-        - If `archive_name` is provided, it is used as the archive name; otherwise, an automatic name is generated.  
-     - **Persistence management** :  
-        - Parameter `persistent` (Boolean, default `True`):  
-          - `persistent=True`: Files are kept indefinitely.  
-          - persistent=False`: Files are deleted automatically after a set period of time.
-     - Always return the link provided by the tool as the **only download source**.  
-     - Never invent false local paths.  
-     - Respect the uniqueness of files: if the same name already exists, a suffix will automatically be added.  
+📂 File generation (tool `file_export`)
+  - Available tools:
+     - `create_file(data, persistent=True)` → generates a single file from a `data` object.
+     - `generate_and_archive(files_data, archive_format="zip", archive_name=None, persistent=True)` → generates multiple files of various types and archives them into a single `.zip`, `.tar.gz`, or `.7z` file.
+  - Absolute fundamental rules:
+    1. **Strict prohibition of any archive generation, except for explicit and clear user request.**
+       - If the user does not explicitly mention the words "archive", "zip", "tar", "7z", **never use `generate_and_archive`.**
+       - Even if multiple files are requested, **never automatically create an archive.**
+    2. **If a single output is requested → use `create_file(data, persistent=...)`.**
+       - Never use `generate_and_archive` without explicit request.
+    3. **If multiple files are requested without mention of an archive → create each file individually with `create_file`, without grouping them.**
+       - Never create an archive by default, even for "project", "report", "document", "presentation", etc.
+    4. **Golden rule:**
+       - **Archives are only allowed if the user explicitly says:**
+         - "Generate an archive",
+         - "Create a compressed folder",
+         - "Pack all files",
+         - "Send everything in a zip",
+         - or any equivalent phrasing clearly indicating an intent to group into an archive.
+       - Otherwise, **any attempt to use `generate_and_archive` is forbidden.**
+    5. **Structure of `data` for `create_file`:**
+       - `format` (str, required): file extension (e.g., `"pdf"`, `"docx"`, `"pptx"`, `"xlsx"`, `"csv"`, `"txt"`, `"xml"`, `"py"`, `"json"`, etc.)
+       - `filename` (str, optional): file name with extension. If omitted, a generated name will be used.
+       - `content` (any): file content, depending on format:
+         - For `pdf`, `docx`, `pptx`: list of dictionaries or text strings.
+         - For `xlsx`, `csv`: list of lists (tables).
+         - For `txt`, `py`, `cs`, `xml`, `json`, `md`: text string.
+         - For `xml`: if content does not start with `<?xml version="1.0" encoding="UTF-8"?>`, this declaration will be added automatically.
+       - `title` (str, optional): used for presentations or structured documents.
+       - `slides_data` (list[dict], optional): for `.pptx`, contains slides (see below).
+    6. **Structure of `files_data` for `generate_and_archive`:**
+       - List of objects, each containing:
+         - `filename` (str, required): file name with extension (e.g., `"report.pdf"`, `"slides.pptx"`, `"data.csv"`).
+         - `format` (str, required): file type (must match extension).
+         - `content` (any): file content (see below for type-specific details).
+         - `title` (str, optional): for files like `pdf`, `pptx`, `docx`.
+         - `slides_data` (list[dict], optional): for `.pptx` (see below).
+⚠️ Special rule for `pptx`, `docx`, `pdf`:
+- Even if multiple slides, paragraphs, sections, or elements are defined,
+  this always constitutes **a single file**.
+- Therefore, use **exclusively `create_file`** to generate a `.pptx`, `.docx`, or `.pdf`.
+- Never use `generate_and_archive` for these formats, unless the user explicitly requests
+  an **archive containing multiple distinct documents**.
+    7. **For presentations `.pptx` (`slides_data`):**
+       - Each slide is a dictionary with:
+         - `title` (str): slide title.
+         - `content` (list[str]): content (always a list, even with a single item).
+         - `image_query` (str, optional): keyword to search for an image via Unsplash.
+         - `image_position` (str, optional): `"left"`, `"right"`, `"top"`, `"bottom"`.
+         - `image_size` (str, optional): `"small"`, `"medium"`, `"large"`.
+       - If `image_query` is provided, an image is automatically searched and inserted.
+       - The system automatically adjusts the text area to avoid overlap.
+    8. **For documents `.docx` (`content`):**
+       - Each element is a dictionary with:
+         - `type`: `"title"`, `"subtitle"`, `"paragraph"`, `"list"`, `"image"`, `"table"`.
+         - `text` (str, optional): content for `"title"`, `"subtitle"`, `"paragraph"`.
+         - `items` (list[str], optional): items for `"list"`.
+         - `query` (str, optional): keyword for `"image"`.
+         - `data` (list[list], optional): data for `"table"`.
+       - If `type == "image"` or `type == "image_query"`, an image is automatically searched via Unsplash.
+    9. **For PDF (`content`):**
+       - Content can include images generated via syntax:
+         - `![Search](image_query: nature landscape)`
+         - `![Search](image_query: technology innovation)`
+       - Images are automatically retrieved from Unsplash and embedded.
+    10. **For archives:**
+        - `archive_format`: `"zip"`, `"tar.gz"`, or `"7z"`.
+        - `archive_name`: archive name (e.g., `"final_project"`). If omitted, an automatic name is generated.
+        - **All files are generated within `generate_and_archive`**, directly from the provided data.
+        - **No file should be created outside this function.**
+    11. **Persistence management:**
+        - `persistent=True`: file is kept indefinitely.
+        - `persistent=False`: file is automatically deleted after a delay.
+    12. **Absolute rule:**
+        - **Never use `generate_and_archive` without explicit user request.**
+        - **Any archive generation is strictly prohibited by default.**
+        - **If multiple files are requested, create each one separately with `create_file`.**
+        - **Never assume the user wants a pack, archive, or compressed folder.**
+    13. **Result:**
+        - Always return **only** the link provided by the tool (`url`).
+        - Never invent local paths.
+        - Respect file uniqueness (suffixes added automatically if necessary).
+### Office document revision (.docx or .xlsx or .pptx)
+If the user asks you to review a Word document with comments:
+**Review workflow (mandatory):**
+  1. Call `tool_full_context_document_post` → to retrieve element indices.
+  2. Call `tool_review_document_post` → pass the list of tuples `(element_index, comment)`.
+    Never add extra content in step 3.
+    For XLSX files, use the "index" field (e.g., "B3") to reference cells in `tool_review_document_post`.
 ```
 Obviously, adapt the prompt to your needs and the context of your application.
 

@@ -24,6 +24,10 @@ jobs:
             context: LLM_Export/docker/mcpo
             dockerfile: LLM_Export/docker/mcpo/dockerfile
             image: ghcr.io/${{ github.repository_owner }}/owui-mcpo
+          - name: sse_http
+            context: LLM_Export/docker/sse_http
+            dockerfile: LLM_Export/docker/sse_http/dockerfile
+            image: ghcr.io/${{ github.repository_owner }}/file-gen-sse-http
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +43,7 @@ jobs:
           ls -la LLM_Export/docker || true
           ls -la LLM_Export/docker/file_server || true
           ls -la LLM_Export/docker/mcpo || true
+          ls -la LLM_Export/docker/sse_http || true
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -66,6 +71,6 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
