@@ -1,13 +1,20 @@
 FROM ghcr.io/open-webui/mcpo:main
 
+WORKDIR /app
+
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+RUN . /app/.venv/bin/activate && \
+    pip install --no-cache-dir -r /tmp/requirements.txt
 
 RUN mkdir -p /rootPath
+
 COPY config.json /rootPath
 COPY tools /rootPath/tools
 COPY templates /rootPath/templates
 COPY functions /rootPath/functions
 
+EXPOSE 8000
+
 ENTRYPOINT []
-CMD mcpo --type http --host 0.0.0.0 --port 8000 --config /rootPath/config.json --api-key ${MCPO_API_KEY:-top-secret}
+CMD ["/app/.venv/bin/mcpo", "--type", "http", "--host", "0.0.0.0", "--port", "8000", "--config", "/rootPath/config.json", "--api-key", "${MCPO_API_KEY:-top-secret}"]
