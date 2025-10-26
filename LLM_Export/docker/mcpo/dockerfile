@@ -1,9 +1,7 @@
 FROM ghcr.io/open-webui/mcpo:main
 
 COPY requirements.txt /tmp/requirements.txt
-
-RUN /app/.venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt && \
-    /app/.venv/bin/python -c "import emoji; print('✓ emoji module installed successfully')"
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 RUN mkdir -p /rootPath
 COPY config.json /rootPath
