@@ -5,7 +5,8 @@ WORKDIR /app
 COPY requirements.txt /tmp/requirements.txt
 
 RUN . /app/.venv/bin/activate && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    pip install --no-cache-dir -r /tmp/requirements.txt --target /usr/local/lib/python3.12/site-packages
 
 RUN mkdir -p /rootPath
 
@@ -17,4 +18,6 @@ COPY functions /rootPath/functions
 EXPOSE 8000
 
 ENTRYPOINT []
+
 CMD ["/app/.venv/bin/mcpo", "--type", "http", "--host", "0.0.0.0", "--port", "8000", "--config", "/rootPath/config.json", "--api-key", "${MCPO_API_KEY:-top-secret}"]
+
