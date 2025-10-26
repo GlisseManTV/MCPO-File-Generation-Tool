@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "file_export": {
-      "command": "python3.12",
+      "command": "/app/.venv/bin/python",
       "args": ["-m", "tools.file_export_mcp"],
       "env": {
         "PYTHONPATH": "/rootPath"
