@@ -1,4 +1,4 @@
-FROM ghcr.io/open-webui/mcpo:git-44ce6d0
+FROM ghcr.io/open-webui/mcpo:main
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
