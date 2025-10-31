@@ -1405,24 +1405,20 @@ def full_context_document(
 
                 for shape_idx, shape in enumerate(slide.shapes):
                     key = f"s{slide_idx}/sh{shape_idx}"
-                    # image?
                     if hasattr(shape, "image"):
                         shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id  
                         slide_obj["shapes"].append({
                             "shape_idx": shape_idx,
                             "shape_id": shape_id_val,
                             "idx_key": key, 
-                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",  # ADD
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
                             "kind": "image"
                         })
                         continue
 
-                    # text?
                     if hasattr(shape, "text_frame") and shape.text_frame:
-                        # kind: title vs textbox
                         kind = "title" if (title_shape is not None and shape is title_shape) else "textbox"
 
-                        # collect paragraphs
                         paragraphs = []
                         for p in shape.text_frame.paragraphs:
                             text = "".join(run.text for run in p.runs) if p.runs else p.text
@@ -1435,7 +1431,7 @@ def full_context_document(
                             "shape_idx": shape_idx,
                             "shape_id": shape_id_val,
                             "idx_key": key, 
-                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",  # ADD
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
                             "kind": kind,
                             "paragraphs": paragraphs
                         })
@@ -1536,11 +1532,7 @@ def _set_text_with_runs(shape, new_content):
     else:
         lines = [str(new_content or "")]
 
-    # --- snapshot original paragraph + run styles ---
-
-    # paragraph-level info
     original_para_styles = []
-    # list of runs per paragraph with their font styles   
     original_para_runs = []     
 
     for p in tf.paragraphs:
@@ -1549,28 +1541,23 @@ def _set_text_with_runs(shape, new_content):
         original_para_styles.append({"level": level, "alignment": alignment})
         original_para_runs.append(_snapshot_runs(p))
 
-    # --- clear and rebuild with preserved runs ---
     tf.clear()
 
     for i, line in enumerate(lines):
-        # reuse first paragraph if present, else add new
         p = tf.paragraphs[0] if (i == 0 and tf.paragraphs) else tf.add_paragraph()
 
-        # paragraph-level style: reuse i-th if exists, else last known
         if original_para_styles:
             style = original_para_styles[i] if i < len(original_para_styles) else original_para_styles[-1]
             p.level = style.get("level", 0)
             if style.get("alignment") is not None:
                 p.alignment = style["alignment"]
 
-        # run-level style sequence: reuse i-th if exists, else last known
         runs_spec = (
             original_para_runs[i] if i < len(original_para_runs)
             else (original_para_runs[-1] if original_para_runs else [])
         )
 
         if not runs_spec:
-            # no original runs -> single run with default formatting
             r = p.add_run()
             r.text = line
             continue
@@ -1579,13 +1566,11 @@ def _set_text_with_runs(shape, new_content):
         total = len(line)
 
         if total == 0:
-            # keep run positions with empty text to preserve visual spacing
             for spec in runs_spec:
                 r = p.add_run()
                 r.text = ""
                 _apply_font(r, spec["font"])
         else:
-            # distribute new text across original runs (nearly equal chunks)
             base, rem = divmod(total, n)
             sizes = [base + (1 if k < rem else 0) for k in range(n)]
             pos = 0
@@ -1609,7 +1594,6 @@ def shape_by_id(slide, shape_id):  # ADD
 def ensure_slot_textbox(slide, slot):
     slot = (slot or "").lower()
 
-    # Build a safe set of placeholder types that exist in this python-pptx version
     def _get(ph_name):
         return getattr(PP_PLACEHOLDER, ph_name, None)
 
@@ -1617,8 +1601,8 @@ def ensure_slot_textbox(slide, slot):
     CENTER_TITLE = _get("CENTER_TITLE")
     SUBTITLE = _get("SUBTITLE")
     BODY = _get("BODY")
-    CONTENT = _get("CONTENT")      # may be missing
-    OBJECT = _get("OBJECT")        # older name for content in some versions
+    CONTENT = _get("CONTENT")
+    OBJECT = _get("OBJECT")
 
     title_types = {t for t in (TITLE, CENTER_TITLE, SUBTITLE) if t is not None}
     body_types  = {t for t in (BODY, CONTENT, OBJECT) if t is not None}
@@ -1637,7 +1621,6 @@ def ensure_slot_textbox(slide, slot):
                 pass
         return None
 
-    # Prefer real placeholders so text inherits the theme
     if slot == "title":
         ph = find_placeholder(title_types)
         if ph:
@@ -1648,7 +1631,6 @@ def ensure_slot_textbox(slide, slot):
         if ph:
             return ph
 
-    # Fallback: create a plain textbox if no placeholder is available in the layout
     from pptx.util import Inches
     if slot == "title":
         return slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
@@ -1723,7 +1705,7 @@ def edit_document(
         [
             "sid:256/shid:4",
             [
-            "Call to 010436890",
+            "Call to 012345678",
             "If patient Dr X => press 1",
             "If patient Dr Y => press 2",
             "For any other question => press 3"
@@ -1732,12 +1714,12 @@ def edit_document(
         [
             "sid:256/shid:13",
             [
-            "1 => 02/880.04.54 (mikrono)",
-            "2 => 0495/23.87.87",
-            "3 => urgent question (6892)",
+            "1 => 01/234.56.78 (mikrono)",
+            "2 => 0123/45.67.89",
+            "3 => urgent question (1234)",
             "Regulated by schedule",
             "4 => replay",
-            "5 => Return to main menu (6890)"
+            "5 => Return to main menu (5678)"
             ]
         ]
         ],
@@ -1844,14 +1826,11 @@ def edit_document(
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            # create a blank slide
                             style_donor = slides_by_id.get(order[-1])
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
                             layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
-
-                            # Reorder XML so it sits right after anchor
                             sldIdLst = prs.slides._sldIdLst
                             new_sldId = sldIdLst[-1]
                             try:
@@ -1860,8 +1839,6 @@ def edit_document(
                                 sldIdLst.insert(anchor_pos + 1, new_sldId)
                             except Exception:
                                 pass 
-
-                            # Update local order & maps
                             order.insert(order.index(anchor_id) + 1, new_sid)
                             slides_by_id[new_sid] = new_slide
                             new_refs[new_ref] = new_sid
@@ -1900,13 +1877,10 @@ def edit_document(
                             order.pop(i)
                             slides_by_id.pop(sid, None)                
                 
-                # ---------- EDITS ----------
                 for target, new_text in edit_items:
                     if not isinstance(target, str):
                         continue
                     t = target.strip()
-
-                    # sid:<id>/shid:<id>
                     m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
                     if m:
                         slide_id = int(m.group(1))
@@ -1919,8 +1893,6 @@ def edit_document(
                             continue
                         _set_text_with_runs(shape, new_text)
                         continue
-
-                    # nK:slot:title|body  (for newly inserted slides in this batch)
                     m = re.match(r"^(n\d+):slot:(title|body)$", t, flags=re.I)
                     if m:
                         ref = m.group(1)
@@ -1941,7 +1913,6 @@ def edit_document(
                             for line in new_text[1:]:
                                 p = tf.add_paragraph()
                                 p.text = str(line)
-                                # keep paragraph level same as first
                                 try:
                                     p.level = getattr(tf.paragraphs[0], "level", 0)
                                 except Exception:

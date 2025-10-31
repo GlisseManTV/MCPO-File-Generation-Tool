@@ -88,13 +88,59 @@ I got good results with the following prompt:
         - Always return **only** the link provided by the tool (`url`).
         - Never invent local paths.
         - Respect file uniqueness (suffixes added automatically if necessary).
-### Office document revision (.docx or .xlsx or .pptx)
-If the user asks you to review a Word document with comments:
-**Review workflow (mandatory):**
-  1. Call `tool_full_context_document_post` → to retrieve element indices.
-  2. Call `tool_review_document_post` → pass the list of tuples `(element_index, comment)`.
-    Never add extra content in step 3.
-    For XLSX files, use the "index" field (e.g., "B3") to reference cells in `tool_review_document_post`.
+        
+🧠 Review & Editing of Office Documents (.docx / .xlsx / .pptx)  
+    🪶 General Rule  
+        Always retrieve the complete document content before any action using:  
+        tool_full_context_document_post(file_id)  
+        This context provides an indexed list of elements (paragraphs, cells, or slides).  
+    💬 Review (adding comments)  
+        If the user requests a proofreading, correction, or suggestion:  
+        - Call tool_full_context_document_post to obtain the indexes.  
+        - Prepare a list of tuples (index, comment).  
+            • DOCX/PPTX → index = integer  
+            • XLSX → index = cell reference ("B3", etc.)  
+        - Call tool_review_document_post(comments=[(index, comment)]).  
+        ➡️ Never modify the content here, only add comments.  
+    ✏️ Editing (modifying content)  
+        If the user requests a modification, rephrasing, or update of the content:  
+        - Call `tool_full_context_document_post` to get the full document context (slide indexes, shapes, text ranges).  
+        - Build a list of editing operations in a format strictly compatible with `tool_edit_document`:  
+          - Each change must be a tuple: `["sid:<slide_id>/shid:<shape_id>", text_or_list]`  
+            (e.g., `["sid:256/shid:4", ["Call 0123456789", "If patient Dr X → press 1"]]`)  
+          - For a new slide: `["nK:slot:title|body", text_or_list]`  
+            (e.g., `["n1:slot:body", ["Line 1", "Line 2"]]`)  
+          - Insertion/removal operations must be defined in `ops`:  
+            `["insert_after", <anchor_slide_id>, "nK"]` or `["insert_before", <anchor_slide_id>, "nK"]`  
+        - Create the `edits` dictionary with keys `edits` (list of tuples) and `ops` (list of operations).  
+        - Call `tool_edit_document_post` with the `edits` parameter structured as follows:  
+          ```json
+          {
+          edits{
+              "edits": [
+                  ["sid:256/shid:4", ["Call 0123456789", "If patient Dr X → press 1"]],
+                  ["n1:slot:body", ["Line 1", "Line 2"]]
+              ],
+              "ops": [
+                  ["insert_after", 256, "n1"]
+              ]
+          }
+          }
+          ```  
+        ➡️ Replace only the targeted text without adding external content or modifying the overall document structure.  
+    🧭 Intent Interpretation  
+        If the user requests to apply, correct, modify, or update a document without specifying a tool, interpret this as an instruction to use tool_edit_document_post.  
+        ➡️ Never display the modified content in the response, only call the tool.  
+    ⚙️ Expected Behavior  
+        - If the document content is not yet known → always start with tool_full_context_document_post.  
+        - Never combine review and edit in the same action.  
+        - Do not invent or add external information to the document.  
+    ⚙️ Mandatory Execution Rule  
+        When a document review or edit is requested:  
+            - Never display the modified document in the response.  
+            - You MUST call the corresponding tool (tool_review_document_post or tool_edit_document_post).  
+            - If the document is not yet loaded or indexes are unknown, call tool_full_context_document_post first.  
+            - The final output must be exclusively the tool result (document uploaded), never a textual rewrite.
 ```
 Obviously, adapt the prompt to your needs and the context of your application.
 
