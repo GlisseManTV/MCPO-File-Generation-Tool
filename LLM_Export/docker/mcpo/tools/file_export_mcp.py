@@ -1718,11 +1718,33 @@ def edit_document(
 
     Example:
     {
-      "ops": [],
-      "edits": [
-        ["sid:256/shid:4", "Call to 010436890\\nIf patient Dr X => press 1. .."],
-        ["sid:256/shid:5", "1 => 02/880.04.54 (mikrono)\\n2 => 0495/23.87.87..."]
-      ]
+    "edits": {
+    "edits": [
+      [
+        "sid:256/shid:4",
+        [
+          "Call to 010436890",
+          "If patient Dr X => press 1",
+          "If patient Dr Y => press 2",
+          "For any other question => press 3"
+        ]
+      ],
+      [
+        "sid:256/shid:13",
+        [
+          "1 => 02/880.04.54 (mikrono)",
+          "2 => 0495/23.87.87",
+          "3 => urgent question (6892)",
+          "Regulated by schedule",
+          "4 => replay",
+          "5 => Return to main menu (6890)"
+        ]
+      ],
+    ],
+    "ops": []
+    },
+    "file_id": "cc000fe4-6feb-461c-aa17-9c7c84b459e3",
+    "file_name": "file.ext"
     }
 
     - `text_or_list`: a string or a list of strings for bullet points.
