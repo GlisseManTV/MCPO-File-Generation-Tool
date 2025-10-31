@@ -1294,6 +1294,28 @@ def download_file(file_id: str) -> BytesIO:
     else:
         return BytesIO(response._content)
 
+def _extract_paragraph_style_info(para):
+    """Extrait les informations de style détaillées d'un paragraphe"""
+    if not para.runs:
+        return {}
+    
+    first_run = para.runs[0]
+    return {
+        "font_name": first_run.font.name,
+        "font_size": first_run.font.size,
+        "bold": first_run.font.bold,
+        "italic": first_run.font.italic,
+        "underline": first_run.font.underline,
+        "color": first_run.font.color.rgb if first_run.font.color else None
+    }
+
+def _extract_cell_style_info(cell):
+    """Extrait les informations de style d'une cellule"""
+    return {
+        "style": cell.style.name if hasattr(cell, 'style') else None,
+        "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
+    }
+
 @mcp.tool(
     name="full_context_document",
     title="Return the structure of a document (docx, xlsx, pptx)",
@@ -1336,37 +1358,57 @@ def full_context_document(
                 if not text:
                     continue
                 style = para.style.name
+                
+                style_info = _extract_paragraph_style_info(para)
+                
                 element_type = "heading" if style.startswith("Heading") else "paragraph"
                 structure["body"].append({
                     "index": index_counter,
                     "type": element_type,
                     "style": style,
+                    "style_info": style_info,
                     "text": text
                 })
                 index_counter += 1
 
-            for table in doc.tables:
-                table_text = []
-                for row in table.rows:
-                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-                    if row_text:
-                        table_text.append(row_text)
-                if table_text:
-                    structure["body"].append({
-                        "index": index_counter,
-                        "type": "table",
-                        "style": "Table",
-                        "text": "\n".join(table_text)
-                    })
-                    index_counter += 1
+            for table_idx, table in enumerate(doc.tables):
+                table_info = {
+                    "index": index_counter,
+                    "type": "table",
+                    "style": "Table",
+                    "table_id": table_idx,
+                    "rows": len(table.rows),
+                    "columns": len(table.rows[0].cells) if table.rows else 0,
+                    "cells": []
+                }
+                
+                for row_idx, row in enumerate(table.rows):
+                    row_data = []
+                    for col_idx, cell in enumerate(row.cells):
+                        cell_text = cell.text.strip()
+                        cell_data = {
+                            "row": row_idx,
+                            "column": col_idx,
+                            "text": cell_text,
+                            "style": cell.style.name if hasattr(cell, 'style') else None
+                        }
+                        row_data.append(cell_data)
+                    table_info["cells"].append(row_data)
+                
+                structure["body"].append(table_info)
+                index_counter += 1
 
-            for shape in doc.inline_shapes:
-                structure["body"].append({
+            for shape_idx, shape in enumerate(doc.inline_shapes):
+                image_info = {
                     "index": index_counter,
                     "type": "image",
                     "style": "InlineImage",
-                    "text": f"Image inline {index_counter}"
-                })
+                    "shape_id": shape.shape_id if hasattr(shape, 'shape_id') else None,
+                    "width": shape.width if hasattr(shape, 'width') else None,
+                    "height": shape.height if hasattr(shape, 'height') else None,
+                    "alt_text": shape._element.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}docRId') if hasattr(shape, '_element') else None
+                }
+                structure["body"].append(image_info)
                 index_counter += 1
 
         elif file_type == "xlsx":
@@ -1756,8 +1798,46 @@ def edit_document(
                 for index, new_text in edits:
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
+                        
+                        original_style = para.style.name if para.style else None
+                        original_runs = []
+                        for run in para.runs:
+                            original_runs.append({
+                                "text": run.text,
+                                "font_name": run.font.name,
+                                "font_size": run.font.size,
+                                "bold": run.font.bold,
+                                "italic": run.font.italic,
+                                "underline": run.font.underline,
+                                "color": run.font.color.rgb if run.font.color else None
+                            })
+                        
                         para.clear()
-                        para.add_run(new_text)
+                        
+                        if isinstance(new_text, list):
+                            for text_item in new_text:
+                                run = para.add_run(str(text_item))
+                                if original_runs:
+                                    first_run = original_runs[0]
+                                    run.font.name = first_run["font_name"] if first_run["font_name"] else run.font.name
+                                    run.font.size = first_run["font_size"] if first_run["font_size"] else run.font.size
+                                    run.font.bold = first_run["bold"] if first_run["bold"] is not None else run.font.bold
+                                    run.font.italic = first_run["italic"] if first_run["italic"] is not None else run.font.italic
+                                    run.font.underline = first_run["underline"] if first_run["underline"] is not None else run.font.underline
+                                    if first_run["color"]:
+                                        run.font.color.rgb = first_run["color"]
+                        else:
+                            run = para.add_run(str(new_text))
+                            if original_runs:
+                                first_run = original_runs[0]
+                                run.font.name = first_run["font_name"] if first_run["font_name"] else run.font.name
+                                run.font.size = first_run["font_size"] if first_run["font_size"] else run.font.size
+                                run.font.bold = first_run["bold"] if first_run["bold"] is not None else run.font.bold
+                                run.font.italic = first_run["italic"] if first_run["italic"] is not None else run.font.italic
+                                run.font.underline = first_run["underline"] if first_run["underline"] is not None else run.font.underline
+                                if first_run["color"]:
+                                    run.font.color.rgb = first_run["color"]
+                
                 edited_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
                 )
@@ -1814,8 +1894,7 @@ def edit_document(
                 new_ref_needs = _collect_needs(edit_items)
                 order = [int(s.slide_id) for s in prs.slides]
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
-                new_refs = {}  # maps "n0" -> new slide_id
-
+                new_refs = {}
                 
                 for op in ops:
                     if not isinstance(op, (list, tuple)) or not op:
