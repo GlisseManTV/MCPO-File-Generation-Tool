@@ -17,6 +17,8 @@ import logging
 import requests
 from requests.auth import HTTPBasicAuth
 import threading
+from pptx.util import Inches
+from pptx.enum.shapes import PP_PLACEHOLDER 
 import markdown2
 import tempfile
 from PIL import Image
@@ -1321,7 +1323,8 @@ def full_context_document(
             "file_name": file_name,
             "file_id": file_id,
             "type": file_type,
-            "body": []
+            "slide_id_order": [],
+            "body": [],
         }
         index_counter = 1
 
@@ -1386,37 +1389,60 @@ def full_context_document(
 
         elif file_type == "pptx":
             prs = Presentation(user_file)
-            for slide_idx, slide in enumerate(prs.slides, start=0):
-                if slide_idx == 0:
-                    continue
-                title = slide.shapes.title.text.strip() if slide.shapes.title and slide.shapes.title.text else ""
-                if title:
-                    structure["body"].append({
-                        "index": slide_idx,
-                        "type": "heading",
-                        "style": f"Slide {slide_idx} Title",
-                        "text": title
-                    })
-                    index_counter += 1
+            structure["slide_id_order"] = [int(s.slide_id) for s in prs.slides]
+            for slide_idx, slide in enumerate(prs.slides):
+                title_shape = slide.shapes.title if hasattr(slide.shapes, "title") else None
+                title_text = title_shape.text.strip() if (title_shape and getattr(title_shape, "text", "").strip()) else ""
 
-                for shape in slide.shapes:
-                    if hasattr(shape, "text_frame") and shape.text_frame and shape.text_frame.text.strip():
-                        structure["body"].append({
-                            "index": slide_idx,
-                            "type": "paragraph",
-                            "style": f"Slide {slide_idx} Content",
-                            "text": shape.text_frame.text.strip()
-                        })
-                        index_counter += 1
+                slide_obj = {
+                    "index": slide_idx,
+                    "slide_id": int(slide.slide_id),
+                    "id_key": f"sid:{int(slide.slide_id)}",
+                    "title": title_text,
+                    "shapes": []
+                }
+                
 
+                for shape_idx, shape in enumerate(slide.shapes):
+                    key = f"s{slide_idx}/sh{shape_idx}"
+                    # image?
                     if hasattr(shape, "image"):
-                        structure["body"].append({
-                            "index": slide_idx,
-                            "type": "image",
-                            "style": f"Slide {slide_idx} Image",
-                            "text": f"Image on slide {slide_idx}"
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id  
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key, 
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",  # ADD
+                            "kind": "image"
                         })
-                        index_counter += 1
+                        continue
+
+                    # text?
+                    if hasattr(shape, "text_frame") and shape.text_frame:
+                        # kind: title vs textbox
+                        kind = "title" if (title_shape is not None and shape is title_shape) else "textbox"
+
+                        # collect paragraphs
+                        paragraphs = []
+                        for p in shape.text_frame.paragraphs:
+                            text = "".join(run.text for run in p.runs) if p.runs else p.text
+                            text = (text or "").strip()
+                            if text != "":
+                                paragraphs.append(text)
+
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id 
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key, 
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",  # ADD
+                            "kind": kind,
+                            "paragraphs": paragraphs
+                        })
+                        continue
+
+
+                structure["body"].append(slide_obj)
 
         else:
             return json.dumps({
@@ -1454,6 +1480,218 @@ def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
     comment.height = height
     cell.comment = comment
 
+
+def _snapshot_runs(p):
+    """Return a list of {'text': str, 'font': {...}} for each run in a paragraph."""
+    runs = []
+    for r in p.runs:
+        f = r.font
+        font_spec = {
+            "name": f.name,
+            "size": f.size,
+            "bold": f.bold,
+            "italic": f.italic,
+            "underline": f.underline,
+            "color_rgb": getattr(getattr(f.color, "rgb", None), "rgb", None) or getattr(f.color, "rgb", None)
+        }
+        runs.append({"text": r.text or "", "font": font_spec})
+    return runs
+
+def _apply_font(run, font_spec):
+    """Apply font specifications to a run."""
+    if not font_spec:
+        return
+    f = run.font
+    try:
+        if font_spec.get("name") is not None:
+            f.name = font_spec["name"]
+        if font_spec.get("size") is not None:
+            f.size = font_spec["size"]
+        if font_spec.get("bold") is not None:
+            f.bold = font_spec["bold"]
+        if font_spec.get("italic") is not None:
+            f.italic = font_spec["italic"]
+        if font_spec.get("underline") is not None:
+            f.underline = font_spec["underline"]
+        rgb = font_spec.get("color_rgb")
+        if rgb is not None:
+            try:
+                f.color.rgb = rgb
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def _set_text_with_runs(shape, new_content):
+    """
+    Set the text of a shape while preserving the original run-level formatting.
+    """
+
+    if not (hasattr(shape, "text_frame") and shape.text_frame):
+        return
+    tf = shape.text_frame
+
+    if isinstance(new_content, list):
+        lines = [str(item) for item in new_content]
+    else:
+        lines = [str(new_content or "")]
+
+    # --- snapshot original paragraph + run styles ---
+
+    # paragraph-level info
+    original_para_styles = []
+    # list of runs per paragraph with their font styles   
+    original_para_runs = []     
+
+    for p in tf.paragraphs:
+        level = int(getattr(p, "level", 0) or 0)
+        alignment = getattr(p, "alignment", None)
+        original_para_styles.append({"level": level, "alignment": alignment})
+        original_para_runs.append(_snapshot_runs(p))
+
+    # --- clear and rebuild with preserved runs ---
+    tf.clear()
+
+    for i, line in enumerate(lines):
+        # reuse first paragraph if present, else add new
+        p = tf.paragraphs[0] if (i == 0 and tf.paragraphs) else tf.add_paragraph()
+
+        # paragraph-level style: reuse i-th if exists, else last known
+        if original_para_styles:
+            style = original_para_styles[i] if i < len(original_para_styles) else original_para_styles[-1]
+            p.level = style.get("level", 0)
+            if style.get("alignment") is not None:
+                p.alignment = style["alignment"]
+
+        # run-level style sequence: reuse i-th if exists, else last known
+        runs_spec = (
+            original_para_runs[i] if i < len(original_para_runs)
+            else (original_para_runs[-1] if original_para_runs else [])
+        )
+
+        if not runs_spec:
+            # no original runs -> single run with default formatting
+            r = p.add_run()
+            r.text = line
+            continue
+
+        n = len(runs_spec)
+        total = len(line)
+
+        if total == 0:
+            # keep run positions with empty text to preserve visual spacing
+            for spec in runs_spec:
+                r = p.add_run()
+                r.text = ""
+                _apply_font(r, spec["font"])
+        else:
+            # distribute new text across original runs (nearly equal chunks)
+            base, rem = divmod(total, n)
+            sizes = [base + (1 if k < rem else 0) for k in range(n)]
+            pos = 0
+            for k, spec in enumerate(runs_spec):
+                seg = line[pos:pos + sizes[k]]
+                pos += sizes[k]
+                r = p.add_run()
+                r.text = seg
+                _apply_font(r, spec["font"])
+
+def shape_by_id(slide, shape_id):  # ADD
+    sid = int(shape_id)
+    for sh in slide.shapes:
+        val = getattr(sh, "shape_id", None) or getattr(getattr(sh, "_element", None), "cNvPr", None)
+        val = int(getattr(val, "id", val)) if val is not None else None
+        if val == sid:
+            return sh
+    return None
+
+
+def ensure_slot_textbox(slide, slot):
+    slot = (slot or "").lower()
+
+    # Build a safe set of placeholder types that exist in this python-pptx version
+    def _get(ph_name):
+        return getattr(PP_PLACEHOLDER, ph_name, None)
+
+    TITLE = _get("TITLE")
+    CENTER_TITLE = _get("CENTER_TITLE")
+    SUBTITLE = _get("SUBTITLE")
+    BODY = _get("BODY")
+    CONTENT = _get("CONTENT")      # may be missing
+    OBJECT = _get("OBJECT")        # older name for content in some versions
+
+    title_types = {t for t in (TITLE, CENTER_TITLE, SUBTITLE) if t is not None}
+    body_types  = {t for t in (BODY, CONTENT, OBJECT) if t is not None}
+
+    def find_placeholder(accepted_types):
+        for sh in slide.shapes:
+            if not getattr(sh, "is_placeholder", False):
+                continue
+            pf = getattr(sh, "placeholder_format", None)
+            if not pf:
+                continue
+            try:
+                if pf.type in accepted_types:
+                    return sh
+            except Exception:
+                pass
+        return None
+
+    # Prefer real placeholders so text inherits the theme
+    if slot == "title":
+        ph = find_placeholder(title_types)
+        if ph:
+            return ph
+
+    if slot == "body":
+        ph = find_placeholder(body_types)
+        if ph:
+            return ph
+
+    # Fallback: create a plain textbox if no placeholder is available in the layout
+    from pptx.util import Inches
+    if slot == "title":
+        return slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
+    if slot == "body":
+        return slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
+    return slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1.5))
+
+def _layout_has(layout, want_title=False, want_body=False):  # ADD
+    has_title = has_body = False
+    for ph in getattr(layout, "placeholders", []):
+        pf = getattr(ph, "placeholder_format", None)
+        t = getattr(pf, "type", None) if pf else None
+        if t in (getattr(PP_PLACEHOLDER, "TITLE", None),
+                 getattr(PP_PLACEHOLDER, "CENTER_TITLE", None),
+                 getattr(PP_PLACEHOLDER, "SUBTITLE", None)):
+            has_title = True
+        if t in (getattr(PP_PLACEHOLDER, "BODY", None),
+                 getattr(PP_PLACEHOLDER, "CONTENT", None),
+                 getattr(PP_PLACEHOLDER, "OBJECT", None)):
+            has_body = True
+    return (not want_title or has_title) and (not want_body or has_body)
+
+def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
+    if anchor_slide and _layout_has(anchor_slide.slide_layout, needs_title, needs_body):
+        return anchor_slide.slide_layout
+    for layout in prs.slide_layouts:
+        if _layout_has(layout, needs_title, needs_body):
+            return layout
+    return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
+
+def _collect_needs(edit_items):  # ADD
+    needs = {}  # "n0" -> {"title": bool, "body": bool}
+    for tgt, _ in edit_items:
+        if not isinstance(tgt, str):
+            continue
+        m = re.match(r"^(n\d+):slot:(title|body)$", tgt.strip(), flags=re.I)
+        if m:
+            ref, slot = m.group(1), m.group(2).lower()
+            needs.setdefault(ref, {"title": False, "body": False})
+            needs[ref][slot] = True
+    return needs
+
+
 @mcp.tool()
 def edit_document(
     file_id: str,
@@ -1462,8 +1700,20 @@ def edit_document(
 ) -> dict:
     """
     Edits an existing document of various types (docx, xlsx, pptx).
-    The index must be an integer for docx and pptx, or a cell reference for xlsx.
-    The text is the new content to replace the original.
+    The `edits` value uses this structure:
+    {
+      "ops": [
+        ["insert_after", <anchor_slide_id:int>, "nK"],
+        ["insert_before", <anchor_slide_id:int>, "nK"],
+      ],
+      "edits": [
+        ["nK:slot:title|body", text_or_list],
+        ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+      ]
+    }
+
+    - `ops` defines slide operations and may be empty.
+    - `text_or_list` is a string (single paragraph) or a list of strings (bullets) to replace the original.
     Returns a markdown hyperlink for downloading the edited document.
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
@@ -1537,16 +1787,133 @@ def edit_document(
         elif file_type == "pptx":
             try:
                 prs = Presentation(user_file)
+                if isinstance(edits, dict):
+                    ops = edits.get("ops", []) or []
+                    edit_items = edits.get("edits", []) or []
+                else:
+                    ops = []
+                    edit_items = edits
+                new_ref_needs = _collect_needs(edit_items)
+                order = [int(s.slide_id) for s in prs.slides]
+                slides_by_id = {int(s.slide_id): s for s in prs.slides}
+                new_refs = {}  # maps "n0" -> new slide_id
 
-                for index, new_text in edits:
-                    if isinstance(index, int) and 0 <= index < len(prs.slides):
-                        slide = prs.slides[index]
-                        for shape in slide.shapes:
-                            if hasattr(shape, "text_frame") and shape.text_frame:
-                                shape.text_frame.clear()
-                                p = shape.text_frame.add_paragraph()
-                                p.text = new_text
-                                break 
+                
+                for op in ops:
+                    if not isinstance(op, (list, tuple)) or not op:
+                        continue
+                    kind = op[0]
+
+                    if kind == "insert_after" and len(op) >= 3:
+                        anchor_id = int(op[1])
+                        new_ref = op[2]
+                        if anchor_id in order:
+                            # create a blank slide
+                            style_donor = slides_by_id.get(order[-1])
+                            needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            new_slide = prs.slides.add_slide(layout)
+                            new_sid = int(new_slide.slide_id)
+
+                            # Reorder XML so it sits right after anchor
+                            sldIdLst = prs.slides._sldIdLst
+                            new_sldId = sldIdLst[-1]
+                            try:
+                                anchor_pos = order.index(anchor_id)
+                                sldIdLst.remove(new_sldId)
+                                sldIdLst.insert(anchor_pos + 1, new_sldId)
+                            except Exception:
+                                pass 
+
+                            # Update local order & maps
+                            order.insert(order.index(anchor_id) + 1, new_sid)
+                            slides_by_id[new_sid] = new_slide
+                            new_refs[new_ref] = new_sid
+
+                    elif kind == "insert_before" and len(op) >= 3:
+                        anchor_id = int(op[1])
+                        new_ref = op[2]
+                        if anchor_id in order:
+                            style_donor = slides_by_id.get(order[-1])
+                            needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            new_slide = prs.slides.add_slide(layout)
+                            new_sid = int(new_slide.slide_id)
+
+                            sldIdLst = prs.slides._sldIdLst
+                            new_sldId = sldIdLst[-1]
+                            try:
+                                anchor_pos = order.index(anchor_id)
+                                sldIdLst.remove(new_sldId)
+                                sldIdLst.insert(anchor_pos, new_sldId)
+                            except Exception:
+                                pass
+
+                            order.insert(order.index(anchor_id), new_sid)
+                            slides_by_id[new_sid] = new_slide
+                            new_refs[new_ref] = new_sid
+
+                    elif kind == "delete_slide" and len(op) >= 2:
+                        sid = int(op[1])
+                        if sid in order:
+                            i = order.index(sid)
+                            sldIdLst = prs.slides._sldIdLst
+                            rId = sldIdLst[i].rId
+                            prs.part.drop_rel(rId)
+                            del sldIdLst[i]
+                            order.pop(i)
+                            slides_by_id.pop(sid, None)                
+                
+                # ---------- EDITS ----------
+                for target, new_text in edit_items:
+                    if not isinstance(target, str):
+                        continue
+                    t = target.strip()
+
+                    # sid:<id>/shid:<id>
+                    m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
+                    if m:
+                        slide_id = int(m.group(1))
+                        shape_id = int(m.group(2))
+                        slide = slides_by_id.get(slide_id)
+                        if not slide:
+                            continue
+                        shape = shape_by_id(slide, shape_id)
+                        if not shape:
+                            continue
+                        _set_text_with_runs(shape, new_text)
+                        continue
+
+                    # nK:slot:title|body  (for newly inserted slides in this batch)
+                    m = re.match(r"^(n\d+):slot:(title|body)$", t, flags=re.I)
+                    if m:
+                        ref = m.group(1)
+                        slot = m.group(2).lower()
+                        sid = new_refs.get(ref)
+                        if not sid:
+                            continue
+                        slide = slides_by_id.get(sid)
+                        if not slide:
+                            continue
+                        shape = ensure_slot_textbox(slide, slot)
+                        tf = getattr(shape, "text_frame", None)
+                        if tf is None:
+                            continue
+                        if isinstance(new_text, list):
+                            tf.clear()
+                            tf.text = str(new_text[0]) if new_text else ""
+                            for line in new_text[1:]:
+                                p = tf.add_paragraph()
+                                p.text = str(line)
+                                # keep paragraph level same as first
+                                try:
+                                    p.level = getattr(tf.paragraphs[0], "level", 0)
+                                except Exception:
+                                    pass
+                        else:
+                            tf.text = str(new_text)
+                        continue
+ 
 
                 edited_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_edited.pptx"
