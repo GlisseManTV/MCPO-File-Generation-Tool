@@ -1942,23 +1942,51 @@ def edit_document(
             ensure_ascii=False
         )
 
-@mcp.tool(
-    name="review_document",
-    title="Review and comment on various document types",
-    description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
-)
-def review_document(
+@mcp.tool()
+def edit_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    edits: dict
 ) -> dict:
     """
-    Generic document review function that works with different document types.
-    File type is automatically detected from the file extension.
-    Returns a markdown hyperlink for downloading the reviewed document.
-    For Excel files (.xlsx), the index must always be a cell reference (e.g. "A1", "B3", "C10"),
-    corresponding to the "index" key returned by the full_context_document() function.
-    Never use integer values for Excel cells.
+    Edits an existing document of various types (docx, xlsx, pptx).
+    
+    The `edits` parameter must be a dictionary with the following structure:
+    
+    {
+      "ops": [
+        ["insert_after", <anchor_slide_id:int>, "nK"],
+        ["insert_before", <anchor_slide_id:int>, "nK"]
+      ],
+      "edits": [
+        ["nK:slot:title|body", text_or_list],
+        ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+      ]
+    }
+    
+    Where:
+    - `ops` (optional): List of operations to insert or delete slides.
+      - `insert_after` or `insert_before`: Insert a new slide before/after a given slide.
+      - `<anchor_slide_id>`: ID of the slide to use as reference (int).
+      - `"nK"`: Reference for the new slide (e.g., "n0", "n1"), used in `edits` to target the new slide.
+    - `edits`: List of text replacements or updates.
+      - `"nK:slot:title|body"`: Target the title or body of a newly inserted slide (e.g., "n0:slot:title").
+      - `"sid:<slide_id>/shid:<shape_id>"`: Target a specific text box (shape) in an existing slide (e.g., "sid:256/shid:4").
+      - `text_or_list`: Either:
+        - A string (for single paragraph),
+        - A list of strings (for bullet points).
+
+    Example of a valid `edits` dictionary:
+    {
+      "ops": [],
+      "edits": [
+        ["sid:256/shid:4", "Call to 010436890\\nIf patient Dr X => press 1\\nIf patient Dr Y => press 2\\nFor any other question => press 3"],
+        ["sid:256/shid:5", "1 => 02/880.04.54 (mikrono)\\n2 => 0495/23.87.87\\n3 => urgent question (6892)\\nRegulated by schedule (direct routing or after 6 rings depending on day and time)\\n4 => replay\\n5 => Return to main menu (6890)"],
+        ["sid:256/shid:6", "1 => 02/880.04.54 (mikrono)\\n2 => 0495/38.88.75\\n3 => urgent question (6892)\\n4 => replay\\n5 => Return to main menu (6890)"]
+      ]
+    }
+
+    Returns a markdown hyperlink for downloading the edited document.
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
