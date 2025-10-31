@@ -1724,7 +1724,6 @@ def edit_document(
 ) -> dict:
     """
     Edits an existing document of various types (docx, xlsx, pptx).
-
     The `edits` parameter must be a dictionary with the following keys:
     {
       "ops": [
@@ -1795,7 +1794,9 @@ def edit_document(
                 doc = Document(user_file)
                 paragraphs = list(doc.paragraphs)
 
-                for index, new_text in edits:
+                edit_items = edits.get("edits", []) if isinstance(edits, dict) and "edits" in edits else edits
+                
+                for index, new_text in edit_items:
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
                         
@@ -1855,7 +1856,9 @@ def edit_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
 
-                for index, new_text in edits:
+                edit_items = edits.get("edits", []) if isinstance(edits, dict) and "edits" in edits else edits
+                
+                for index, new_text in edit_items:
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
