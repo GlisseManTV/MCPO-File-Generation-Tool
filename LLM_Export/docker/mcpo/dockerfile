@@ -1,7 +1,10 @@
 FROM ghcr.io/open-webui/mcpo:main
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+RUN /app/.venv/bin/python -m ensurepip --upgrade && \
+    /app/.venv/bin/python -m pip install --upgrade pip && \
+    /app/.venv/bin/python -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 RUN mkdir -p /rootPath
 COPY config.json /rootPath

@@ -28,88 +28,6 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 ## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Best_Practices.md)
 ## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Prompt_Examples.md)
 
-### 🔧 For Python Users
-
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/GlisseManTV/MCPO-File-Generation-Tool.git
-   ```
-
-2. Update env variables in `config.json`:
-  These ones only concerns the MCPO part
-
-   - `PYTHONPATH`: Path to your `LLM_Export` folder (e.g., `C:\temp\LLM_Export`) <=== MANDATORY no default value
-   - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
-   - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the server's export directory) (default is `PYTHONPATH\output`)
-   - `PERSISTENT_FILES`: Set to `true` to keep files after download, `false` to delete after delay (default is false)
-   - `FILES_DELAY`: Delay in minut to wait before checking for new files (default is 60)
-   - `UNSPLASH_ACCESS_KEY`: Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
-   - `IMAGE_SOURCE`: "unsplash" to use Unsplash for image generation or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
-   - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
-   - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
-   - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
-   - `LOCAL_SD_DEFAULT_MODEL`: Default model to use (if any) (default `sd_xl_base_1.0.safetensors`, not mandatory)
-   - `LOCAL_SD_STEPS`: Number of steps to use (default 20, not mandatory)
-   - `LOCAL_SD_WIDTH`: Width of the image to generate (default 512, not mandatory)
-   - `LOCAL_SD_HEIGHT`: Height of the image to generate (default 512, not mandatory)
-   - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
-   - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
-   - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   
-3. Install dependencies:
-   ```bash
-   pip install openpyxl reportlab py7zr fastapi uvicorn python-multipart mcp
-   ```
-
-4. Run the file server:
-   ```bat
-   set FILE_EXPORT_DIR=C:\temp\LLM_Export\output
-   start "File Export Server" python "YourPATH/LLM_Export/tools/file_export_server.py"
-   ```
-
-5. Use it in Open WebUI — your AI can now generate and export files in real time!
-
----
-
-### PYTHON EXAMPLE
-This file only concerns the MCPO part, you need to run the file server separately as shown above
-This is an example of a minimal `config.json` for MCPO to enable file export but you can add other (or to other) MCP servers as needed.
-
-```config.json
-{
-  "mcpServers": {
-		"file_export": {
-			"command": "python",
-			"args": [
-				"-m",
-				"tools.file_export_mcp"
-			],
-			"env": {
-				"PYTHONPATH": "C:\\temp\\LLM_Export", <==== HERE set the path to your LLM_Export folder (this one is Mandatory)
-				"FILE_EXPORT_BASE_URL": "http://localhost:9003/files", <==== HERE set the URL of your file export server
-				"FILE_EXPORT_DIR": "C:\\temp\\LLM_Export\\output", <==== HERE set the directory where files will be saved (must match the server's export directory)
-				"PERSISTENT_FILES": "false", <==== HERE set to true to keep files after download, false to delete after delay
-				"FILES_DELAY": "60", <==== HERE set the delay in minut to wait before checking for new files
-                "UNSPLASH_ACCESS_KEY":"", <== Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
-				"IMAGE_SOURCE": "local_sd", <==== HERE set to "unsplash" to use Unsplash for image generation or "local_sd" to use your local Stable Diffusion instance>
-				"LOCAL_SD_URL": "http://localhost:7860", <==== HERE set to the URL of your local Stable Diffusion instance>
-                "LOCAL_SD_USERNAME": "local_user", <==== HERE set to the username of your local Stable Diffusion instance (if any)>
-                "LOCAL_SD_PASSWORD": "local_password", <==== HERE set to the password of your local Stable Diffusion instance (if any)>
-                "LOCAL_SD_DEFAULT_MODEL": "sd_xl_base_1.0.safetensors", <==== HERE set to the default model to use (if any)>
-                "LOCAL_SD_STEPS": "20", <==== HERE set to the number of steps to use (if any)>
-                "LOCAL_SD_WIDTH": "512", <==== HERE set to the width of the image to generate (if any)>
-                "LOCAL_SD_HEIGHT": "512", <==== HERE set to the height of the image to generate (if any)>
-                "LOCAL_SD_CFG_SCALE": "1.5", <==== HERE set to the CFG scale to use (if any)>
-                "LOCAL_SD_SCHEDULER": "Karras", <==== HERE set to the scheduler to use (if any)>
-                "LOCAL_SD_SAMPLE": "Euler a" <==== HERE set to the sampler to use (if any)>
-			},
-			"disabled": false,
-			"autoApprove": []
-		}
-}
-
-```
-
 ---
 
 ## 🐳 For Docker User (Recommended)
@@ -350,6 +268,94 @@ MCPO-File-Generation-Tool/
 
 ```
 ---
+
+### 🔧 For Python Users
+
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/GlisseManTV/MCPO-File-Generation-Tool.git
+   ```
+
+2. Update env variables in `config.json`:
+  These ones only concerns the MCPO part
+
+   - `PYTHONPATH`: Path to your `LLM_Export` folder (e.g., `C:\temp\LLM_Export`) <=== MANDATORY no default value
+   - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
+   - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the server's export directory) (default is `PYTHONPATH\output`)
+   - `PERSISTENT_FILES`: Set to `true` to keep files after download, `false` to delete after delay (default is false)
+   - `FILES_DELAY`: Delay in minut to wait before checking for new files (default is 60)
+   - `LOG_LEVEL`: Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) (default is INFO)
+   - `MCPO_API_KEY`: Your MCPO API key (no default value, not mandatory but advised)
+   - `PEXELS_ACCESS_KEY`: Your Pexels API key (no default value, not mandatory) see [here](https://www.pexels.com/api/)
+   - `UNSPLASH_ACCESS_KEY`: Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
+   - `IMAGE_SOURCE`: "pexels" to use Pexels, "unsplash" to use Unsplash for image generation or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
+   - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
+   - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
+   - `LOCAL_SD_DEFAULT_MODEL`: Default model to use (if any) (default `sd_xl_base_1.0.safetensors`, not mandatory)
+   - `LOCAL_SD_STEPS`: Number of steps to use (default 20, not mandatory)
+   - `LOCAL_SD_WIDTH`: Width of the image to generate (default 512, not mandatory)
+   - `LOCAL_SD_HEIGHT`: Height of the image to generate (default 512, not mandatory)
+   - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
+   - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
+   - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   
+3. Install dependencies:
+   ```bash
+   pip install openpyxl reportlab py7zr fastapi uvicorn python-multipart mcp
+   ```
+
+4. Run the file server:
+   ```bat
+   set FILE_EXPORT_DIR=C:\temp\LLM_Export\output
+   start "File Export Server" python "YourPATH/LLM_Export/tools/file_export_server.py"
+   ```
+
+5. Use it in Open WebUI — your AI can now generate and export files in real time!
+
+---
+
+### PYTHON EXAMPLE
+This file only concerns the MCPO part, you need to run the file server separately as shown above
+This is an example of a minimal `config.json` for MCPO to enable file export but you can add other (or to other) MCP servers as needed.
+
+```config.json
+{
+  "mcpServers": {
+		"file_export": {
+			"command": "python",
+			"args": [
+				"-m",
+				"tools.file_export_mcp"
+			],
+			"env": {
+				"PYTHONPATH": "C:\\temp\\LLM_Export", <==== HERE set the path to your LLM_Export folder (this one is Mandatory)
+				"FILE_EXPORT_BASE_URL": "http://localhost:9003/files", <==== HERE set the URL of your file export server
+				"FILE_EXPORT_DIR": "C:\\temp\\LLM_Export\\output", <==== HERE set the directory where files will be saved (must match the server's export directory)
+				"PERSISTENT_FILES": "false", <==== HERE set to true to keep files after download, false to delete after delay
+				"FILES_DELAY": "60", <==== HERE set the delay in minut to wait before checking for new files
+                "LOG_LEVEL": "INFO", <==== HERE set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+                "MCPO_API_KEY": "", <== Your MCPO API key (no default value, not mandatory but advised)"
+                "PEXELS_ACCESS_KEY":"", <== Your Pexels API key (no default value, not mandatory) see [here](https://www.pexels.com/api/)
+                "UNSPLASH_ACCESS_KEY":"", <== Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
+				"IMAGE_SOURCE": "local_sd", <==== HERE set to "pexels" to use Pexels, "unsplash" to use Unsplash for image generation or "local_sd" to use your local Stable Diffusion instance>
+				"LOCAL_SD_URL": "http://localhost:7860", <==== HERE set to the URL of your local Stable Diffusion instance>
+                "LOCAL_SD_USERNAME": "local_user", <==== HERE set to the username of your local Stable Diffusion instance (if any)>
+                "LOCAL_SD_PASSWORD": "local_password", <==== HERE set to the password of your local Stable Diffusion instance (if any)>
+                "LOCAL_SD_DEFAULT_MODEL": "sd_xl_base_1.0.safetensors", <==== HERE set to the default model to use (if any)>
+                "LOCAL_SD_STEPS": "20", <==== HERE set to the number of steps to use (if any)>
+                "LOCAL_SD_WIDTH": "512", <==== HERE set to the width of the image to generate (if any)>
+                "LOCAL_SD_HEIGHT": "512", <==== HERE set to the height of the image to generate (if any)>
+                "LOCAL_SD_CFG_SCALE": "1.5", <==== HERE set to the CFG scale to use (if any)>
+                "LOCAL_SD_SCHEDULER": "Karras", <==== HERE set to the scheduler to use (if any)>
+                "LOCAL_SD_SAMPLE": "Euler a" <==== HERE set to the sampler to use (if any)>
+			},
+			"disabled": false,
+			"autoApprove": []
+		}
+}
+
+```
 
 ## 🌟 Why This Matters
 
