@@ -1720,26 +1720,26 @@ def edit_document(
     {
         "edits": {
             "edits": [
-            [
-                "sid:256/shid:4",
                 [
-                "Call to 010436890",
-                "If patient Dr X => press 1",
-                "If patient Dr Y => press 2",
-                "For any other question => press 3"
-                ]
-            ],
-            [
-                "sid:256/shid:13",
+                    "sid:256/shid:4",
+                    [
+                        "Call to 010436890",
+                        "If patient Dr X => press 1",
+                        "If patient Dr Y => press 2",
+                        "For any other question => press 3"
+                    ]
+                ],
                 [
-                "1 => 02/880.04.54 (mikrono)",
-                "2 => 0495/23.87.87",
-                "3 => urgent question (6892)",
-                "Regulated by schedule",
-                "4 => replay",
-                "5 => Return to main menu (6890)"
+                    "sid:256/shid:13",
+                    [
+                        "1 => 02/880.04.54 (mikrono)",
+                        "2 => 0495/23.87.87",
+                        "3 => urgent question (6892)",
+                        "Regulated by schedule",
+                        "4 => replay",
+                        "5 => Return to main menu (6890)"
+                    ]
                 ]
-            ]
             ],
             "ops": []
         },
