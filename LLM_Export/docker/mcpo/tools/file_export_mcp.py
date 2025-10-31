@@ -1704,7 +1704,7 @@ def edit_document(
     {
       "ops": [
         ["insert_after", <anchor_slide_id:int>, "nK"],
-        ["insert_before", <anchor_slide_id:int>, "nK"],
+        ["insert_before", <anchor_slide_id:int>, "nK"]
       ],
       "edits": [
         ["nK:slot:title|body", text_or_list],
