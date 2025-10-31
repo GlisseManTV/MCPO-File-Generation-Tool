@@ -1696,7 +1696,7 @@ def _collect_needs(edit_items):  # ADD
 def edit_document(
     file_id: str,
     file_name: str,
-    edits: list[tuple[int | str, str]]
+    edits: dict
 ) -> dict:
     """
     Edits an existing document of various types (docx, xlsx, pptx).
@@ -1704,14 +1704,14 @@ def edit_document(
     {
       "ops": [
         ["insert_after", <anchor_slide_id:int>, "nK"],
-        ["insert_before", <anchor_slide_id:int>, "nK"],
+        ["insert_before", <anchor_slide_id:int>, "nK"]
       ],
       "edits": [
         ["nK:slot:title|body", text_or_list],
         ["sid:<slide_id>/shid:<shape_id>", text_or_list]
       ]
     }
-
+    _ nk is a new slide reference (e.g., n0, n1, ...).
     - `ops` defines slide operations and may be empty.
     - `text_or_list` is a string (single paragraph) or a list of strings (bullets) to replace the original.
     Returns a markdown hyperlink for downloading the edited document.
