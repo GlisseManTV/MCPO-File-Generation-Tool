@@ -318,8 +318,8 @@ This is an example of a minimal `config.json` for MCPO to enable file export but
 			"disabled": false,
 			"autoApprove": []
 		}
+  }
 }
-
 ```
 
 ## 🌟 Why This Matters
