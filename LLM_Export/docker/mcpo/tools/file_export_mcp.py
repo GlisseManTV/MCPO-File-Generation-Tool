@@ -12,11 +12,14 @@ import shutil
 import datetime
 import tarfile
 import zipfile
+import hashlib
 import py7zr
 import logging
 import requests
 from requests.auth import HTTPBasicAuth
 import threading
+from pptx.util import Inches
+from pptx.enum.shapes import PP_PLACEHOLDER 
 import markdown2
 import tempfile
 from PIL import Image
@@ -43,7 +46,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.7.0"
+SCRIPT_VERSION = "0.8.0-alpha"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -271,6 +274,12 @@ def search_pexels(query):
     except Exception as e:
         log.error(f"Unexpected error searching image for '{query}': {e}")
     return None
+
+def _para_hash(para, idx):
+    text = para.text.strip()
+    style = para.style.name if para.style else "Normal"
+    h = hashlib.md5(f"{idx}:{text}:{style}".encode()).hexdigest()
+    return h[:12]
 
 def _resolve_log_level(val: str | None) -> int:
     if not val:
@@ -1292,6 +1301,115 @@ def download_file(file_id: str) -> BytesIO:
     else:
         return BytesIO(response._content)
 
+def _extract_paragraph_style_info(para):
+    """Extrait les informations de style détaillées d'un paragraphe"""
+    if not para.runs:
+        return {}
+    
+    first_run = para.runs[0]
+    return {
+        "font_name": first_run.font.name,
+        "font_size": first_run.font.size,
+        "bold": first_run.font.bold,
+        "italic": first_run.font.italic,
+        "underline": first_run.font.underline,
+        "color": first_run.font.color.rgb if first_run.font.color else None
+    }
+
+def _extract_cell_style_info(cell):
+    """Extrait les informations de style d'une cellule"""
+    return {
+        "style": cell.style.name if hasattr(cell, 'style') else None,
+        "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
+    }
+
+def _apply_text_to_paragraph(para, new_text):
+    """
+    Apply new text to a paragraph while preserving formatting.
+    """
+    original_style = para.style
+    original_alignment = para.alignment
+    
+    original_run_format = None
+    if para.runs:
+        first_run = para.runs[0]
+        original_run_format = {
+            "font_name": first_run.font.name,
+            "font_size": first_run.font.size,
+            "bold": first_run.font.bold,
+            "italic": first_run.font.italic,
+            "underline": first_run.font.underline,
+            "color": first_run.font.color.rgb if first_run.font.color and first_run.font.color.rgb else None
+        }
+    
+    for _ in range(len(para.runs)):
+        para._element.remove(para.runs[0]._element)
+    
+    if isinstance(new_text, list):
+        for i, text_item in enumerate(new_text):
+            if i > 0:
+                para.add_run("\n")
+            run = para.add_run(str(text_item))
+            if original_run_format:
+                _apply_run_formatting(run, original_run_format)
+    else:
+        run = para.add_run(str(new_text))
+        if original_run_format:
+            _apply_run_formatting(run, original_run_format)
+    
+    if original_style:
+        try:
+            para.style = original_style
+        except Exception:
+            pass
+    if original_alignment is not None:
+        try:
+            para.alignment = original_alignment
+        except Exception:
+            pass
+
+
+def _apply_run_formatting(run, format_dict):
+    """
+    Apply formatting from a dict to a run.
+    """
+    try:
+        if format_dict.get("font_name"):
+            run.font.name = format_dict["font_name"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("font_size"):
+            run.font.size = format_dict["font_size"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("bold") is not None:
+            run.font.bold = format_dict["bold"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("italic") is not None:
+            run.font.italic = format_dict["italic"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("underline") is not None:
+            run.font.underline = format_dict["underline"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("color"):
+            from docx.shared import RGBColor
+            run.font.color.rgb = format_dict["color"]
+    except Exception:
+        pass
+
 @mcp.tool(
     name="full_context_document",
     title="Return the structure of a document (docx, xlsx, pptx)",
@@ -1321,50 +1439,70 @@ def full_context_document(
             "file_name": file_name,
             "file_id": file_id,
             "type": file_type,
-            "body": []
+            "slide_id_order": [],
+            "body": [],
         }
         index_counter = 1
 
         if file_type == "docx":
             doc = Document(user_file)
-
+            
+            para_id_counter = 1
+            
             for para in doc.paragraphs:
                 text = para.text.strip()
                 if not text:
                     continue
+                
                 style = para.style.name
+                style_info = _extract_paragraph_style_info(para)
                 element_type = "heading" if style.startswith("Heading") else "paragraph"
+                
+                para_xml_id = para_id_counter
+                
                 structure["body"].append({
-                    "index": index_counter,
+                    "index": para_id_counter,
+                    "para_xml_id": para_xml_id,
+                    "id_key": f"pid:{para_xml_id}",
                     "type": element_type,
                     "style": style,
+                    "style_info": style_info,
                     "text": text
                 })
-                index_counter += 1
-
-            for table in doc.tables:
-                table_text = []
-                for row in table.rows:
-                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-                    if row_text:
-                        table_text.append(row_text)
-                if table_text:
-                    structure["body"].append({
-                        "index": index_counter,
-                        "type": "table",
-                        "style": "Table",
-                        "text": "\n".join(table_text)
-                    })
-                    index_counter += 1
-
-            for shape in doc.inline_shapes:
-                structure["body"].append({
-                    "index": index_counter,
-                    "type": "image",
-                    "style": "InlineImage",
-                    "text": f"Image inline {index_counter}"
-                })
-                index_counter += 1
+                para_id_counter += 1
+            
+            for table_idx, table in enumerate(doc.tables):
+                table_xml_id = id(table._element)
+                table_info = {
+                    "index": para_id_counter,
+                    "table_xml_id": table_xml_id,
+                    "id_key": f"tid:{table_xml_id}",
+                    "type": "table",
+                    "style": "Table",
+                    "table_id": table_idx,
+                    "rows": len(table.rows),
+                    "columns": len(table.rows[0].cells) if table.rows else 0,
+                    "cells": []
+                }
+                
+                for row_idx, row in enumerate(table.rows):
+                    row_data = []
+                    for col_idx, cell in enumerate(row.cells):
+                        cell_xml_id = id(cell._element)
+                        cell_text = cell.text.strip()
+                        cell_data = {
+                            "row": row_idx,
+                            "column": col_idx,
+                            "cell_xml_id": cell_xml_id,
+                            "id_key": f"tid:{table_xml_id}/cid:{cell_xml_id}",
+                            "text": cell_text,
+                            "style": cell.style.name if hasattr(cell, 'style') else None
+                        }
+                        row_data.append(cell_data)
+                    table_info["cells"].append(row_data)
+                
+                structure["body"].append(table_info)
+                para_id_counter += 1
 
         elif file_type == "xlsx":
             wb = load_workbook(user_file, read_only=True, data_only=True)
@@ -1386,37 +1524,56 @@ def full_context_document(
 
         elif file_type == "pptx":
             prs = Presentation(user_file)
-            for slide_idx, slide in enumerate(prs.slides, start=0):
-                if slide_idx == 0:
-                    continue
-                title = slide.shapes.title.text.strip() if slide.shapes.title and slide.shapes.title.text else ""
-                if title:
-                    structure["body"].append({
-                        "index": slide_idx,
-                        "type": "heading",
-                        "style": f"Slide {slide_idx} Title",
-                        "text": title
-                    })
-                    index_counter += 1
+            structure["slide_id_order"] = [int(s.slide_id) for s in prs.slides]
+            for slide_idx, slide in enumerate(prs.slides):
+                title_shape = slide.shapes.title if hasattr(slide.shapes, "title") else None
+                title_text = title_shape.text.strip() if (title_shape and getattr(title_shape, "text", "").strip()) else ""
 
-                for shape in slide.shapes:
-                    if hasattr(shape, "text_frame") and shape.text_frame and shape.text_frame.text.strip():
-                        structure["body"].append({
-                            "index": slide_idx,
-                            "type": "paragraph",
-                            "style": f"Slide {slide_idx} Content",
-                            "text": shape.text_frame.text.strip()
-                        })
-                        index_counter += 1
+                slide_obj = {
+                    "index": slide_idx,
+                    "slide_id": int(slide.slide_id),
+                    "id_key": f"sid:{int(slide.slide_id)}",
+                    "title": title_text,
+                    "shapes": []
+                }
+                
 
+                for shape_idx, shape in enumerate(slide.shapes):
+                    key = f"s{slide_idx}/sh{shape_idx}"
                     if hasattr(shape, "image"):
-                        structure["body"].append({
-                            "index": slide_idx,
-                            "type": "image",
-                            "style": f"Slide {slide_idx} Image",
-                            "text": f"Image on slide {slide_idx}"
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id  
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key, 
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": "image"
                         })
-                        index_counter += 1
+                        continue
+
+                    if hasattr(shape, "text_frame") and shape.text_frame:
+                        kind = "title" if (title_shape is not None and shape is title_shape) else "textbox"
+
+                        paragraphs = []
+                        for p in shape.text_frame.paragraphs:
+                            text = "".join(run.text for run in p.runs) if p.runs else p.text
+                            text = (text or "").strip()
+                            if text != "":
+                                paragraphs.append(text)
+
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id 
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key, 
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": kind,
+                            "paragraphs": paragraphs
+                        })
+                        continue
+
+
+                structure["body"].append(slide_obj)
 
         else:
             return json.dumps({
@@ -1454,6 +1611,655 @@ def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
     comment.height = height
     cell.comment = comment
 
+
+def _snapshot_runs(p):
+    """Return a list of {'text': str, 'font': {...}} for each run in a paragraph."""
+    runs = []
+    for r in p.runs:
+        f = r.font
+        font_spec = {
+            "name": f.name,
+            "size": f.size,
+            "bold": f.bold,
+            "italic": f.italic,
+            "underline": f.underline,
+            "color_rgb": getattr(getattr(f.color, "rgb", None), "rgb", None) or getattr(f.color, "rgb", None)
+        }
+        runs.append({"text": r.text or "", "font": font_spec})
+    return runs
+
+def _apply_font(run, font_spec):
+    """Apply font specifications to a run."""
+    if not font_spec:
+        return
+    f = run.font
+    try:
+        if font_spec.get("name") is not None:
+            f.name = font_spec["name"]
+        if font_spec.get("size") is not None:
+            f.size = font_spec["size"]
+        if font_spec.get("bold") is not None:
+            f.bold = font_spec["bold"]
+        if font_spec.get("italic") is not None:
+            f.italic = font_spec["italic"]
+        if font_spec.get("underline") is not None:
+            f.underline = font_spec["underline"]
+        rgb = font_spec.get("color_rgb")
+        if rgb is not None:
+            try:
+                f.color.rgb = rgb
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def _set_text_with_runs(shape, new_content):
+    """
+    Set the text of a shape while preserving the original run-level formatting.
+    """
+
+    if not (hasattr(shape, "text_frame") and shape.text_frame):
+        return
+    tf = shape.text_frame
+
+    if isinstance(new_content, list):
+        lines = [str(item) for item in new_content]
+    else:
+        lines = [str(new_content or "")]
+
+    original_para_styles = []
+    original_para_runs = []     
+
+    for p in tf.paragraphs:
+        level = int(getattr(p, "level", 0) or 0)
+        alignment = getattr(p, "alignment", None)
+        original_para_styles.append({"level": level, "alignment": alignment})
+        original_para_runs.append(_snapshot_runs(p))
+
+    tf.clear()
+
+    for i, line in enumerate(lines):
+        p = tf.paragraphs[0] if (i == 0 and tf.paragraphs) else tf.add_paragraph()
+
+        if original_para_styles:
+            style = original_para_styles[i] if i < len(original_para_styles) else original_para_styles[-1]
+            p.level = style.get("level", 0)
+            if style.get("alignment") is not None:
+                p.alignment = style["alignment"]
+
+        runs_spec = (
+            original_para_runs[i] if i < len(original_para_runs)
+            else (original_para_runs[-1] if original_para_runs else [])
+        )
+
+        if not runs_spec:
+            r = p.add_run()
+            r.text = line
+            continue
+
+        n = len(runs_spec)
+        total = len(line)
+
+        if total == 0:
+            for spec in runs_spec:
+                r = p.add_run()
+                r.text = ""
+                _apply_font(r, spec["font"])
+        else:
+            base, rem = divmod(total, n)
+            sizes = [base + (1 if k < rem else 0) for k in range(n)]
+            pos = 0
+            for k, spec in enumerate(runs_spec):
+                seg = line[pos:pos + sizes[k]]
+                pos += sizes[k]
+                r = p.add_run()
+                r.text = seg
+                _apply_font(r, spec["font"])
+
+def shape_by_id(slide, shape_id):  # ADD
+    sid = int(shape_id)
+    for sh in slide.shapes:
+        val = getattr(sh, "shape_id", None) or getattr(getattr(sh, "_element", None), "cNvPr", None)
+        val = int(getattr(val, "id", val)) if val is not None else None
+        if val == sid:
+            return sh
+    return None
+
+
+def ensure_slot_textbox(slide, slot):
+    slot = (slot or "").lower()
+
+    def _get(ph_name):
+        return getattr(PP_PLACEHOLDER, ph_name, None)
+
+    TITLE = _get("TITLE")
+    CENTER_TITLE = _get("CENTER_TITLE")
+    SUBTITLE = _get("SUBTITLE")
+    BODY = _get("BODY")
+    CONTENT = _get("CONTENT")
+    OBJECT = _get("OBJECT")
+
+    title_types = {t for t in (TITLE, CENTER_TITLE, SUBTITLE) if t is not None}
+    body_types  = {t for t in (BODY, CONTENT, OBJECT) if t is not None}
+
+    def find_placeholder(accepted_types):
+        for sh in slide.shapes:
+            if not getattr(sh, "is_placeholder", False):
+                continue
+            pf = getattr(sh, "placeholder_format", None)
+            if not pf:
+                continue
+            try:
+                if pf.type in accepted_types:
+                    return sh
+            except Exception:
+                pass
+        return None
+
+    if slot == "title":
+        ph = find_placeholder(title_types)
+        if ph:
+            return ph
+
+    if slot == "body":
+        ph = find_placeholder(body_types)
+        if ph:
+            return ph
+
+    from pptx.util import Inches
+    if slot == "title":
+        return slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
+    if slot == "body":
+        return slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
+    return slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1.5))
+
+def _layout_has(layout, want_title=False, want_body=False):  # ADD
+    has_title = has_body = False
+    for ph in getattr(layout, "placeholders", []):
+        pf = getattr(ph, "placeholder_format", None)
+        t = getattr(pf, "type", None) if pf else None
+        if t in (getattr(PP_PLACEHOLDER, "TITLE", None),
+                 getattr(PP_PLACEHOLDER, "CENTER_TITLE", None),
+                 getattr(PP_PLACEHOLDER, "SUBTITLE", None)):
+            has_title = True
+        if t in (getattr(PP_PLACEHOLDER, "BODY", None),
+                 getattr(PP_PLACEHOLDER, "CONTENT", None),
+                 getattr(PP_PLACEHOLDER, "OBJECT", None)):
+            has_body = True
+    return (not want_title or has_title) and (not want_body or has_body)
+
+def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
+    if anchor_slide and _layout_has(anchor_slide.slide_layout, needs_title, needs_body):
+        return anchor_slide.slide_layout
+    for layout in prs.slide_layouts:
+        if _layout_has(layout, needs_title, needs_body):
+            return layout
+    return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
+
+def _collect_needs(edit_items):  # ADD
+    needs = {}
+    for tgt, _ in edit_items:
+        if not isinstance(tgt, str):
+            continue
+        m = re.match(r"^(n\d+):slot:(title|body)$", tgt.strip(), flags=re.I)
+        if m:
+            ref, slot = m.group(1), m.group(2).lower()
+            needs.setdefault(ref, {"title": False, "body": False})
+            needs[ref][slot] = True
+    return needs
+
+
+@mcp.tool()
+def edit_document(
+    file_id: str,
+    file_name: str,
+    edits: dict
+) -> dict:
+    """
+    Edits an existing document of various types (docx, xlsx, pptx).
+    
+    The `edits` parameter must be a dictionary with the following structure:
+    {
+      "ops": [...],      # Operations (structure modifications)
+      "conten_edits": [...]     # Content modifications
+    }
+    
+    ## PPTX (PowerPoint) Files
+    
+    ### Operations (ops):
+    - ["insert_after", <slide_id:int>, "nK"]  # Insert new slide after specified slide
+    - ["insert_before", <slide_id:int>, "nK"] # Insert new slide before specified slide
+    - ["delete_slide", <slide_id:int>]        # Delete specified slide
+    
+    ### Content edits (conten_edits):
+    - ["sid:<slide_id>/shid:<shape_id>", text_or_list]  # Edit specific shape by ID
+    - ["nK:slot:title", text_or_list]                   # Set title of new slide nK
+    - ["nK:slot:body", text_or_list]                    # Set body of new slide nK
+    
+    Example for PPTX:
+    {
+      "edits": {
+        "ops": [
+          ["insert_after", 256, "n0"]
+        ],
+        "conten_edits": [
+          ["sid:256/shid:4", ["Line 1", "Line 2", "Line 3"]],
+          ["n0:slot:title", "New Slide Title"],
+          ["n0:slot:body", ["Bullet 1", "Bullet 2"]]
+        ]
+      },
+      "file_id": "...",
+      "file_name": "presentation.pptx"
+    }
+    
+    ## DOCX (Word) Files
+    
+    ### Operations (ops):
+    - ["insert_after", <para_xml_id:int>, "nK"]   # Insert new paragraph after specified paragraph
+    - ["insert_before", <para_xml_id:int>, "nK"]  # Insert new paragraph before specified paragraph
+    - ["delete_paragraph", <para_xml_id:int>]     # Delete specified paragraph
+    
+    ### Content edits (conten_edits):
+    - ["pid:<para_xml_id>", text_or_list]           # Edit paragraph by XML ID (from full_context_document)
+    - ["tid:<table_xml_id>/cid:<cell_xml_id>", text] # Edit table cell by XML ID
+    - ["nK", text_or_list]                          # Set content of new paragraph nK
+    
+    Notes:
+    - Use the para_xml_id and id_key values returned by full_context_document()
+    - text_or_list can be a string or list of strings
+    - Original formatting (font, size, style) is preserved
+    
+    Example for DOCX:
+    {
+      "edits": {
+        "ops": [
+          ["insert_after", 140234567890123, "n0"]
+        ],
+        "conten_edits": [
+          ["pid:140234567890123", "Updated first paragraph"],
+          ["pid:140234567890456", "Updated third paragraph"],
+          ["n0", "New paragraph content"]
+        ]
+      },
+      "file_id": "...",
+      "file_name": "document.docx"
+    }
+    
+    ## XLSX (Excel) Files
+    
+    ### Operations (ops):
+    - ["insert_row", "<sheet_name>", <row_idx:int>]     # Insert row at position
+    - ["delete_row", "<sheet_name>", <row_idx:int>]     # Delete row at position
+    - ["insert_column", "<sheet_name>", <col_idx:int>]  # Insert column at position
+    - ["delete_column", "<sheet_name>", <col_idx:int>]  # Delete column at position
+    
+    ### Content edits (conten_edits):
+    - ["sheet:<name>/cell:<ref>", value]  # Edit cell by sheet name and reference
+    - ["cell:<ref>", value]                # Edit cell in active sheet
+    - ["<ref>", value]
+    - ["<ref>", value]                     # Edit cell in active sheet (shorthand, e.g., "A1")
+    
+    Notes:
+    - Cell references must match the format from full_context_document()
+    - Use letter-number format (e.g., "A1", "B5", not numeric indices)
+    - Original cell formatting (font, colors, number format) is preserved
+    
+    Example for XLSX:
+    {
+      "edits": {
+        "ops": [
+          ["insert_row", "Sheet1", 5]
+        ],
+        "conten_edits": [
+          ["sheet:Sheet1/cell:A1", "New Header"],
+          ["sheet:Sheet1/cell:B3", 12345],
+          ["C5", "Updated value"]
+        ]
+      },
+      "file_id": "...",
+      "file_name": "spreadsheet.xlsx"
+    }
+    
+    ## Return Value
+    Returns a markdown hyperlink to download the edited document:
+    {"file_path_download": "[Download filename_edited.ext](/api/v1/files/<id>/content)"}
+    
+    ## Important Notes
+    1. ALWAYS call full_context_document() first to get the correct IDs/references
+    2. For DOCX: use "pid:<para_xml_id>" where para_xml_id comes from full_context_document
+    3. For XLSX: use "sheet:<name>/cell:<ref>" format (as returned by full_context_document)
+    4. For PPTX: use "sid:<slide_id>/shid:<shape_id>" format (as returned by full_context_document)
+    5. All formats support ops for structure modifications and conten_edits for content modifications
+    """
+    temp_folder = f"/app/temp/{uuid.uuid4()}"
+    os.makedirs(temp_folder, exist_ok=True)
+
+    try:
+        user_file = download_file(file_id)
+        if isinstance(user_file, dict) and "error" in user_file:
+            return json.dumps(user_file, indent=4, ensure_ascii=False)
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        file_type = file_extension.lstrip('.')
+
+        edited_path = None
+        response = None
+
+        if file_type == "docx":
+            try:
+                doc = Document(user_file)
+                
+                para_by_xml_id = {}
+                table_by_xml_id = {}
+                cell_by_xml_id = {}
+                
+                para_id_counter = 1
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    para_by_xml_id[para_id_counter] = para
+                    para_id_counter += 1
+          
+                for table in doc.tables:
+                    table_xml_id = id(table._element)
+                    table_by_xml_id[table_xml_id] = table
+                    for row in table.rows:
+                        for cell in row.cells:
+                            cell_xml_id = id(cell._element)
+                            cell_by_xml_id[cell_xml_id] = cell
+          
+                if isinstance(edits, dict):
+                    ops = edits.get("ops", []) or []
+                    edit_items = edits.get("conten_edits", []) or []
+                else:
+                    ops = []
+                    edit_items = edits
+          
+                new_refs = {}
+                
+                for op in ops:
+                    if not isinstance(op, (list, tuple)) or not op:
+                        continue
+                    kind = op[0]
+                    
+                    if kind == "insert_after" and len(op) >= 3:
+                        anchor_xml_id = int(op[1])
+                        new_ref = op[2]
+                        
+                        anchor_para = para_by_xml_id.get(anchor_xml_id)
+                        if anchor_para:
+                            para_index = doc.paragraphs.index(anchor_para)
+          	       	      
+                            new_para = doc.add_paragraph()
+          	       	      
+                            anchor_element = anchor_para._element
+                            parent = anchor_element.getparent()
+                            parent.insert(parent.index(anchor_element) + 1, new_para._element)
+          	       	      
+                            new_para.style = anchor_para.style
+      	      				
+                            new_xml_id = id(new_para._element)
+                            new_refs[new_ref] = new_xml_id
+                            para_by_xml_id[new_xml_id] = new_para
+      	      		
+                    elif kind == "insert_before" and len(op) >= 3:
+                        anchor_xml_id = int(op[1])
+                        new_ref = op[2]
+                        
+                        anchor_para = para_by_xml_id.get(anchor_xml_id)
+                        if anchor_para:
+                            new_para = doc.add_paragraph()
+          	       	      
+                            anchor_element = anchor_para._element
+                            parent = anchor_element.getparent()
+                            parent.insert(parent.index(anchor_element), new_para._element)
+          	       	      
+                            new_para.style = anchor_para.style
+      	      				
+                            new_xml_id = id(new_para._element)
+                            new_refs[new_ref] = new_xml_id
+                            para_by_xml_id[new_xml_id] = new_para
+      	      		
+                    elif kind == "delete_paragraph" and len(op) >= 2:
+                        para_xml_id = int(op[1])
+                        para = para_by_xml_id.get(para_xml_id)
+                        if para:
+                            parent = para._element.getparent()
+                            parent.remove(para._element)
+                            para_by_xml_id.pop(para_xml_id, None)
+                
+                for target, new_text in edit_items:
+                    if not isinstance(target, str):
+                        continue
+      	      		
+                    t = target.strip()
+                    
+                    m = re.match(r"^pid:(\d+)$", t, flags=re.I)
+                    if m:
+                        para_xml_id = int(m.group(1))
+                        para = para_by_xml_id.get(para_xml_id)
+                        if para:
+                            _apply_text_to_paragraph(para, new_text)
+                        continue
+      	      		
+                    m = re.match(r"^tid:(\d+)/cid:(\d+)$", t, flags=re.I)
+                    if m:
+                        table_xml_id = int(m.group(1))
+                        cell_xml_id = int(m.group(2))
+                        cell = cell_by_xml_id.get(cell_xml_id)
+                        if cell:
+                            for para in cell.paragraphs:
+                                for _ in range(len(para.runs)):
+                                    para._element.remove(para.runs[0]._element)
+          	       	      
+                            if cell.paragraphs:
+                                first_para = cell.paragraphs[0]
+                                first_para.add_run(str(new_text))
+                        continue
+      	      		
+                    m = re.match(r"^n(\d+)$", t, flags=re.I)
+                    if m:
+                        new_ref = t
+                        para_xml_id = new_refs.get(new_ref)
+                        if para_xml_id:
+                            para = para_by_xml_id.get(para_xml_id)
+                            if para:
+                                _apply_text_to_paragraph(para, new_text)
+                        continue
+          
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
+                )
+                doc.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="docx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during DOCX editing: {e}")
+
+        elif file_type == "xlsx":
+            try:
+                wb = load_workbook(user_file)
+                ws = wb.active
+
+                edit_items = edits.get("conten_edits", []) if isinstance(edits, dict) and "conten_edits" in edits else edits
+          
+                for index, new_text in edit_items:
+                    try:
+                        if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
+                            cell_ref = index.strip().upper()
+                        elif isinstance(index, int):
+                            cell_ref = f"A{index+1}"
+                        else:
+                            cell_ref = "A1"
+
+                        cell = ws[cell_ref]
+                        cell.value = new_text
+                    except Exception:
+                        fallback_cell = ws["A1"]
+                        fallback_cell.value = new_text
+
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.xlsx"
+                )
+                wb.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="xlsx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during XLSX editing: {e}")
+
+        elif file_type == "pptx":
+            try:
+                prs = Presentation(user_file)
+                if isinstance(edits, dict):
+                    ops = edits.get("ops", []) or []
+                    edit_items = edits.get("conten_edits", []) or []
+                else:
+                    ops = []
+                    edit_items = edits
+                new_ref_needs = _collect_needs(edit_items)
+                order = [int(s.slide_id) for s in prs.slides]
+                slides_by_id = {int(s.slide_id): s for s in prs.slides}
+                new_refs = {}
+                
+                for op in ops:
+                    if not isinstance(op, (list, tuple)) or not op:
+                        continue
+                    kind = op[0]
+
+                    if kind == "insert_after" and len(op) >= 3:
+                        anchor_id = int(op[1])
+                        new_ref = op[2]
+                        if anchor_id in order:
+                            style_donor = slides_by_id.get(order[-1])
+                            needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            new_slide = prs.slides.add_slide(layout)
+                            new_sid = int(new_slide.slide_id)
+                            sldIdLst = prs.slides._sldIdLst
+                            new_sldId = sldIdLst[-1]
+                            try:
+                                anchor_pos = order.index(anchor_id)
+                                sldIdLst.remove(new_sldId)
+                                sldIdLst.insert(anchor_pos + 1, new_sldId)
+                            except Exception:
+                                pass 
+                            order.insert(order.index(anchor_id) + 1, new_sid)
+                            slides_by_id[new_sid] = new_slide
+                            new_refs[new_ref] = new_sid
+
+                    elif kind == "insert_before" and len(op) >= 3:
+                        anchor_id = int(op[1])
+                        new_ref = op[2]
+                        if anchor_id in order:
+                            style_donor = slides_by_id.get(order[-1])
+                            needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            new_slide = prs.slides.add_slide(layout)
+                            new_sid = int(new_slide.slide_id)
+
+                            sldIdLst = prs.slides._sldIdLst
+                            new_sldId = sldIdLst[-1]
+                            try:
+                                anchor_pos = order.index(anchor_id)
+                                sldIdLst.remove(new_sldId)
+                                sldIdLst.insert(anchor_pos, new_sldId)
+                            except Exception:
+                                pass
+
+                            order.insert(order.index(anchor_id), new_sid)
+                            slides_by_id[new_sid] = new_slide
+                            new_refs[new_ref] = new_sid
+
+                    elif kind == "delete_slide" and len(op) >= 2:
+                        sid = int(op[1])
+                        if sid in order:
+                            i = order.index(sid)
+                            sldIdLst = prs.slides._sldIdLst
+                            rId = sldIdLst[i].rId
+                            prs.part.drop_rel(rId)
+                            del sldIdLst[i]
+                            order.pop(i)
+                            slides_by_id.pop(sid, None)   		 
+      		
+                for target, new_text in edit_items:
+                    if not isinstance(target, str):
+                        continue
+                    t = target.strip()
+                    m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
+                    if m:
+                        slide_id = int(m.group(1))
+                        shape_id = int(m.group(2))
+                        slide = slides_by_id.get(slide_id)
+                        if not slide:
+                            continue
+                        shape = shape_by_id(slide, shape_id)
+                        if not shape:
+                            continue
+                        _set_text_with_runs(shape, new_text)
+                        continue
+                    m = re.match(r"^(n\d+):slot:(title|body)$", t, flags=re.I)
+                    if m:
+                        ref = m.group(1)
+                        slot = m.group(2).lower()
+                        sid = new_refs.get(ref)
+                        if not sid:
+                            continue
+                        slide = slides_by_id.get(sid)
+                        if not slide:
+                            continue
+                        shape = ensure_slot_textbox(slide, slot)
+                        tf = getattr(shape, "text_frame", None)
+                        if tf is None:
+                            continue
+                        if isinstance(new_text, list):
+                            tf.clear()
+                            tf.text = str(new_text[0]) if new_text else ""
+                            for line in new_text[1:]:
+                                p = tf.add_paragraph()
+                                p.text = str(line)
+                                try:
+                                    p.level = getattr(tf.paragraphs[0], "level", 0)
+                                except Exception:
+                                    pass
+                        else:
+                            tf.text = str(new_text)
+                        continue
+ 
+
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.pptx"
+                )
+                prs.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="pptx"
+                )
+            except Exception as e:
+                raise Exception(f"Error during PPTX editing: {e}")
+
+        else:
+            raise Exception(f"File type not supported: {file_type}")
+
+        shutil.rmtree(temp_folder, ignore_errors=True)
+
+        return response
+
+    except Exception as e:
+        shutil.rmtree(temp_folder, ignore_errors=True)
+        return json.dumps(
+            {"error": {"message": str(e)}},
+            indent=4,
+            ensure_ascii=False
+        )
+
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
@@ -1490,6 +2296,15 @@ def review_document(
             try:
                 doc = Document(user_file)
                 paragraphs = list(doc.paragraphs)
+                para_by_xml_id = {}
+                para_id_counter = 1
+                
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    para_by_xml_id[para_id_counter] = para
+                    para_id_counter += 1
 
                 for index, comment_text in review_comments:
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
@@ -1504,6 +2319,34 @@ def review_document(
                                 )
                             except Exception:
                                 para.add_run(f"  [AI Comment: {comment_text}]")
+                    elif isinstance(index, str) and index.startswith("pid:"):
+                        try:
+                            para_xml_id = int(index.split(":")[1])
+                            para = para_by_xml_id.get(para_xml_id)
+                            if para and para.runs:
+                                try:
+                                    doc.add_comment(
+                                        runs=[para.runs[0]],
+                                        text=comment_text,
+                                        author="AI Reviewer",
+                                        initials="AI"
+                                    )
+                                except Exception:
+                                    para.add_run(f"  [AI Comment: {comment_text}]")
+                        except Exception:
+                            # Fallback to paragraph index if para_xml_id not found
+                            if isinstance(index, int) and 0 <= index < len(paragraphs):
+                                para = paragraphs[index]
+                                if para.runs:
+                                    try:
+                                        doc.add_comment(
+                                            runs=[para.runs[0]],
+                                            text=comment_text,
+                                            author="AI Reviewer",
+                                            initials="AI"
+                                        )
+                                    except Exception:
+                                        para.add_run(f"  [AI Comment: {comment_text}]")
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
                 )
@@ -1523,9 +2366,11 @@ def review_document(
 
                 for index, comment_text in review_comments:
                     try:
+                        # Handle both old format (integer) and new format (cell reference)
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
                         elif isinstance(index, int):
+                            # For backward compatibility, treat integer as row number
                             cell_ref = f"A{index+1}"
                         else:
                             cell_ref = "A1"
@@ -1534,6 +2379,7 @@ def review_document(
                         add_auto_sized_review_comment(cell, comment_text, author="AI Reviewer")
 
                     except Exception:
+                        # Fallback to A1 if error
                         fallback_cell = ws["A1"]
                         add_auto_sized_review_comment(fallback_cell, comment_text, author="AI Reviewer")
 
@@ -1552,8 +2398,12 @@ def review_document(
         elif file_type == "pptx":
             try:
                 prs = Presentation(user_file)
-
+                # Get document structure to understand how to map comments
+                # For now, we'll use the existing logic but with better handling
+                slides_by_id = {int(s.slide_id): s for s in prs.slides}
+                
                 for index, comment_text in review_comments:
+                    # Handle both old format (integer) and new format (slide_id)
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
                         slide = prs.slides[index]
                         left = top = Inches(0.2)
@@ -1564,6 +2414,32 @@ def review_document(
                         p = text_frame.add_paragraph()
                         p.text = f"AI Reviewer: {comment_text}"
                         p.font.size = PptPt(10)
+                    elif isinstance(index, str) and index.startswith("sid:"):
+                        # New format: using slide_id
+                        try:
+                            slide_id = int(index.split(":")[1])
+                            slide = slides_by_id.get(slide_id)
+                            if slide:
+                                left = top = Inches(0.2)
+                                width = Inches(4)
+                                height = Inches(1)
+                                textbox = slide.shapes.add_textbox(left, top, width, height)
+                                text_frame = textbox.text_frame
+                                p = text_frame.add_paragraph()
+                                p.text = f"AI Reviewer: {comment_text}"
+                                p.font.size = PptPt(10)
+                        except Exception:
+                            # Fallback to slide index if slide_id not found
+                            if isinstance(index, int) and 0 <= index < len(prs.slides):
+                                slide = prs.slides[index]
+                                left = top = Inches(0.2)
+                                width = Inches(4)
+                                height = Inches(1)
+                                textbox = slide.shapes.add_textbox(left, top, width, height)
+                                text_frame = textbox.text_frame
+                                p = text_frame.add_paragraph()
+                                p.text = f"AI Reviewer: {comment_text}"
+                                p.font.size = PptPt(10)
 
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
