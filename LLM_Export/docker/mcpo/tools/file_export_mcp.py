@@ -1332,7 +1332,8 @@ def _apply_text_to_paragraph(para, new_text):
             "color": run.font.color.rgb if run.font.color else None
         })
     
-    para.clear()
+    for _ in range(len(para.runs)):
+        para._element.remove(para.runs[0]._element)
     
     if isinstance(new_text, list):
         for text_item in new_text:
@@ -1891,20 +1892,17 @@ def edit_document(
                 
                 for target, new_text in edit_items:
                     if not isinstance(target, str):
-                        # Ancienne méthode: index numérique direct
                         if isinstance(target, int) and 0 <= target < len(paragraphs):
                             para = paragraphs[target]
                             _apply_text_to_paragraph(para, new_text)
                         continue
                     
-                    # Nouvelle méthode: notation "index:X"
                     t = target.strip()
                     m = re.match(r"^index:(\d+)$", t, flags=re.I)
                     if m:
                         index = int(m.group(1))
-                        # Chercher dans les paragraphes
                         if 1 <= index <= len(paragraphs):
-                            para = paragraphs[index - 1]  # index-1 car full_context commence à 1
+                            para = paragraphs[index - 1] 
                             _apply_text_to_paragraph(para, new_text)
                             continue
                 
