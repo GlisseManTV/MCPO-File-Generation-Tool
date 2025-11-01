@@ -1809,6 +1809,8 @@ def _collect_needs(edit_items):  # ADD
     return needs
 
 
+# ... existing code ...
+
 @mcp.tool()
 def edit_document(
     file_id: str,
@@ -1821,7 +1823,7 @@ def edit_document(
     The `edits` parameter must be a dictionary with the following structure:
     {
       "ops": [...],      # Operations (structure modifications)
-      "edits": [...]     # Content modifications
+      "conten_edits": [...]     # Content modifications
     }
     
     ## PPTX (PowerPoint) Files
@@ -1831,7 +1833,7 @@ def edit_document(
     - ["insert_before", <slide_id:int>, "nK"] # Insert new slide before specified slide
     - ["delete_slide", <slide_id:int>]        # Delete specified slide
     
-    ### Edits (edits):
+    ### Content edits (conten_edits):
     - ["sid:<slide_id>/shid:<shape_id>", text_or_list]  # Edit specific shape by ID
     - ["nK:slot:title", text_or_list]                   # Set title of new slide nK
     - ["nK:slot:body", text_or_list]                    # Set body of new slide nK
@@ -1842,7 +1844,7 @@ def edit_document(
         "ops": [
           ["insert_after", 256, "n0"]
         ],
-        "edits": [
+        "conten_edits": [
           ["sid:256/shid:4", ["Line 1", "Line 2", "Line 3"]],
           ["n0:slot:title", "New Slide Title"],
           ["n0:slot:body", ["Bullet 1", "Bullet 2"]]
@@ -1859,7 +1861,7 @@ def edit_document(
     - ["insert_before", <para_xml_id:int>, "nK"]  # Insert new paragraph before specified paragraph
     - ["delete_paragraph", <para_xml_id:int>]     # Delete specified paragraph
     
-    ### Edits (edits):
+    ### Content edits (conten_edits):
     - ["pid:<para_xml_id>", text_or_list]           # Edit paragraph by XML ID (from full_context_document)
     - ["tid:<table_xml_id>/cid:<cell_xml_id>", text] # Edit table cell by XML ID
     - ["nK", text_or_list]                          # Set content of new paragraph nK
@@ -1875,7 +1877,7 @@ def edit_document(
         "ops": [
           ["insert_after", 140234567890123, "n0"]
         ],
-        "edits": [
+        "conten_edits": [
           ["pid:140234567890123", "Updated first paragraph"],
           ["pid:140234567890456", "Updated third paragraph"],
           ["n0", "New paragraph content"]
@@ -1893,7 +1895,7 @@ def edit_document(
     - ["insert_column", "<sheet_name>", <col_idx:int>]  # Insert column at position
     - ["delete_column", "<sheet_name>", <col_idx:int>]  # Delete column at position
     
-    ### Edits (edits):
+    ### Content edits (conten_edits):
     - ["sheet:<name>/cell:<ref>", value]  # Edit cell by sheet name and reference
     - ["cell:<ref>", value]                # Edit cell in active sheet
     - ["<ref>", value]
@@ -1910,7 +1912,7 @@ def edit_document(
         "ops": [
           ["insert_row", "Sheet1", 5]
         ],
-        "edits": [
+        "conten_edits": [
           ["sheet:Sheet1/cell:A1", "New Header"],
           ["sheet:Sheet1/cell:B3", 12345],
           ["C5", "Updated value"]
@@ -1929,7 +1931,7 @@ def edit_document(
     2. For DOCX: use "pid:<para_xml_id>" where para_xml_id comes from full_context_document
     3. For XLSX: use "sheet:<name>/cell:<ref>" format (as returned by full_context_document)
     4. For PPTX: use "sid:<slide_id>/shid:<shape_id>" format (as returned by full_context_document)
-    5. All formats support ops for structure modifications and edits for content modifications
+    5. All formats support ops for structure modifications and conten_edits for content modifications
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
@@ -1960,7 +1962,7 @@ def edit_document(
                         continue
                     para_by_xml_id[para_id_counter] = para
                     para_id_counter += 1
-                
+          
                 for table in doc.tables:
                     table_xml_id = id(table._element)
                     table_by_xml_id[table_xml_id] = table
@@ -1968,14 +1970,14 @@ def edit_document(
                         for cell in row.cells:
                             cell_xml_id = id(cell._element)
                             cell_by_xml_id[cell_xml_id] = cell
-                
+          
                 if isinstance(edits, dict):
                     ops = edits.get("ops", []) or []
-                    edit_items = edits.get("edits", []) or []
+                    edit_items = edits.get("conten_edits", []) or []
                 else:
                     ops = []
                     edit_items = edits
-                
+          
                 new_refs = {}
                 
                 for op in ops:
@@ -1990,19 +1992,19 @@ def edit_document(
                         anchor_para = para_by_xml_id.get(anchor_xml_id)
                         if anchor_para:
                             para_index = doc.paragraphs.index(anchor_para)
-                            
+          	       	      
                             new_para = doc.add_paragraph()
-                            
+          	       	      
                             anchor_element = anchor_para._element
                             parent = anchor_element.getparent()
                             parent.insert(parent.index(anchor_element) + 1, new_para._element)
-                            
+          	       	      
                             new_para.style = anchor_para.style
-                            
+      	      				
                             new_xml_id = id(new_para._element)
                             new_refs[new_ref] = new_xml_id
                             para_by_xml_id[new_xml_id] = new_para
-                    
+      	      		
                     elif kind == "insert_before" and len(op) >= 3:
                         anchor_xml_id = int(op[1])
                         new_ref = op[2]
@@ -2010,17 +2012,17 @@ def edit_document(
                         anchor_para = para_by_xml_id.get(anchor_xml_id)
                         if anchor_para:
                             new_para = doc.add_paragraph()
-                            
+          	       	      
                             anchor_element = anchor_para._element
                             parent = anchor_element.getparent()
                             parent.insert(parent.index(anchor_element), new_para._element)
-                            
+          	       	      
                             new_para.style = anchor_para.style
-                            
+      	      				
                             new_xml_id = id(new_para._element)
                             new_refs[new_ref] = new_xml_id
                             para_by_xml_id[new_xml_id] = new_para
-                    
+      	      		
                     elif kind == "delete_paragraph" and len(op) >= 2:
                         para_xml_id = int(op[1])
                         para = para_by_xml_id.get(para_xml_id)
@@ -2032,7 +2034,7 @@ def edit_document(
                 for target, new_text in edit_items:
                     if not isinstance(target, str):
                         continue
-                    
+      	      		
                     t = target.strip()
                     
                     m = re.match(r"^pid:(\d+)$", t, flags=re.I)
@@ -2042,7 +2044,7 @@ def edit_document(
                         if para:
                             _apply_text_to_paragraph(para, new_text)
                         continue
-                    
+      	      		
                     m = re.match(r"^tid:(\d+)/cid:(\d+)$", t, flags=re.I)
                     if m:
                         table_xml_id = int(m.group(1))
@@ -2052,12 +2054,12 @@ def edit_document(
                             for para in cell.paragraphs:
                                 for _ in range(len(para.runs)):
                                     para._element.remove(para.runs[0]._element)
-                            
+          	       	      
                             if cell.paragraphs:
                                 first_para = cell.paragraphs[0]
                                 first_para.add_run(str(new_text))
                         continue
-                    
+      	      		
                     m = re.match(r"^n(\d+)$", t, flags=re.I)
                     if m:
                         new_ref = t
@@ -2067,7 +2069,7 @@ def edit_document(
                             if para:
                                 _apply_text_to_paragraph(para, new_text)
                         continue
-                
+          
                 edited_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
                 )
@@ -2085,8 +2087,8 @@ def edit_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
 
-                edit_items = edits.get("edits", []) if isinstance(edits, dict) and "edits" in edits else edits
-                
+                edit_items = edits.get("conten_edits", []) if isinstance(edits, dict) and "conten_edits" in edits else edits
+          
                 for index, new_text in edit_items:
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
@@ -2119,7 +2121,7 @@ def edit_document(
                 prs = Presentation(user_file)
                 if isinstance(edits, dict):
                     ops = edits.get("ops", []) or []
-                    edit_items = edits.get("edits", []) or []
+                    edit_items = edits.get("conten_edits", []) or []
                 else:
                     ops = []
                     edit_items = edits
@@ -2186,8 +2188,8 @@ def edit_document(
                             prs.part.drop_rel(rId)
                             del sldIdLst[i]
                             order.pop(i)
-                            slides_by_id.pop(sid, None)                
-                
+                            slides_by_id.pop(sid, None)   		 
+      		
                 for target, new_text in edit_items:
                     if not isinstance(target, str):
                         continue
@@ -2259,6 +2261,8 @@ def edit_document(
             indent=4,
             ensure_ascii=False
         )
+
+# ... existing code ...
 
 @mcp.tool(
     name="review_document",
