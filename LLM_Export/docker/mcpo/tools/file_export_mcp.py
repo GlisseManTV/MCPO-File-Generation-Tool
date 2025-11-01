@@ -1769,56 +1769,103 @@ def edit_document(
 ) -> dict:
     """
     Edits an existing document of various types (docx, xlsx, pptx).
-    The `edits` parameter must be a dictionary with the following keys:
+    
+    The `edits` parameter must be a dictionary with the following structure:
     {
-      "ops": [
-        ["insert_after", <anchor_slide_id:int>, "nK"],
-        ["insert_before", <anchor_slide_id:int>, "nK"]
-      ],
-      "edits": [
-        ["nK:slot:title|body", text_or_list],
-        ["sid:<slide_id>/shid:<shape_id>", text_or_list]
-      ]
+      "ops": [...],      # Operations (slides only for PPTX)
+      "edits": [...]     # Content modifications
     }
-
-    - `ops`: list of tuples defining slide operations (insert, delete, etc.).
-    - `edits`: list of tuples defining text modifications on shapes or slides.
-
-    Example:
+    
+    ## PPTX (PowerPoint) Files
+    
+    ### Operations (ops):
+    - ["insert_after", <slide_id:int>, "nK"]  # Insert new slide after specified slide
+    - ["insert_before", <slide_id:int>, "nK"] # Insert new slide before specified slide
+    - ["delete_slide", <slide_id:int>]        # Delete specified slide
+    
+    ### Edits (edits):
+    - ["sid:<slide_id>/shid:<shape_id>", text_or_list]  # Edit specific shape by ID
+    - ["nK:slot:title", text_or_list]                   # Set title of new slide nK
+    - ["nK:slot:body", text_or_list]                    # Set body of new slide nK
+    
+    Example for PPTX:
     {
-    "edits": {
+      "edits": {
+        "ops": [
+          ["insert_after", 256, "n0"]
+        ],
         "edits": [
-        [
-            "sid:256/shid:4",
-            [
-            "Call to 012345678",
-            "If patient Dr X => press 1",
-            "If patient Dr Y => press 2",
-            "For any other question => press 3"
-            ]
-        ],
-        [
-            "sid:256/shid:13",
-            [
-            "1 => 01/234.56.78 (mikrono)",
-            "2 => 0123/45.67.89",
-            "3 => urgent question (1234)",
-            "Regulated by schedule",
-            "4 => replay",
-            "5 => Return to main menu (5678)"
-            ]
+          ["sid:256/shid:4", ["Line 1", "Line 2", "Line 3"]],
+          ["n0:slot:title", "New Slide Title"],
+          ["n0:slot:body", ["Bullet 1", "Bullet 2"]]
         ]
-        ],
-        "ops": []
-    },
-    "file_id": "cc000fe4-6feb-461c-aa17-9c7c84b459e3",
-    "file_name": "file.ext"
+      },
+      "file_id": "...",
+      "file_name": "presentation.pptx"
     }
-
-    - `text_or_list`: a string or a list of strings for bullet points.
-    - `nK`: reference to a new slide (e.g., n0, n1).
-
-    Returns a markdown hyperlink to download the edited document.
+    
+    ## DOCX (Word) Files
+    
+    ### Operations (ops):
+    Not supported for DOCX files. Leave empty: "ops": []
+    
+    ### Edits (edits):
+    - ["index:<paragraph_index>", text_or_list]  # Edit paragraph by index (from full_context_document)
+    
+    Notes:
+    - Use the index values returned by full_context_document() (starts at 1)
+    - text_or_list can be a string or list of strings
+    - Original formatting (font, size, style) is preserved
+    
+    Example for DOCX:
+    {
+      "edits": {
+        "ops": [],
+        "edits": [
+          ["index:1", "Updated first paragraph"],
+          ["index:3", "Updated third paragraph"],
+          ["index:5", ["Line 1", "Line 2"]]
+        ]
+      },
+      "file_id": "...",
+      "file_name": "document.docx"
+    }
+    
+    ## XLSX (Excel) Files
+    
+    ### Operations (ops):
+    Not supported for XLSX files. Leave empty: "ops": []
+    
+    ### Edits (edits):
+    - ["<cell_ref>", value]  # Edit cell by reference (e.g., "A1", "B5", "C10")
+    
+    Notes:
+    - Cell references must match the "index" values from full_context_document()
+    - Always use letter-number format (e.g., "A1", not 0 or index:1)
+    
+    Example for XLSX:
+    {
+      "edits": {
+        "ops": [],
+        "edits": [
+          ["A1", "New Header"],
+          ["B3", 12345],
+          ["C5", "Updated value"]
+        ]
+      },
+      "file_id": "...",
+      "file_name": "spreadsheet.xlsx"
+    }
+    
+    ## Return Value
+    Returns a markdown hyperlink to download the edited document:
+    {"file_path_download": "[Download filename_edited.ext](/api/v1/files/<id>/content)"}
+    
+    ## Important Notes
+    1. Always call full_context_document() first to get the correct indices/references
+    2. For DOCX: use "index:N" where N comes from full_context_document
+    3. For XLSX: use cell references like "A1", "B5" (as returned by full_context_document)
+    4. For PPTX: use "sid:X/shid:Y" for shape IDs (as returned by full_context_document)
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
