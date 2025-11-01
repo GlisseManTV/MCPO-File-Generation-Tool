@@ -1797,7 +1797,7 @@ def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
     return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
 
 def _collect_needs(edit_items):  # ADD
-    needs = {}  # "n0" -> {"title": bool, "body": bool}
+    needs = {}
     for tgt, _ in edit_items:
         if not isinstance(tgt, str):
             continue
@@ -1808,8 +1808,6 @@ def _collect_needs(edit_items):  # ADD
             needs[ref][slot] = True
     return needs
 
-
-# ... existing code ...
 
 @mcp.tool()
 def edit_document(
@@ -2262,8 +2260,6 @@ def edit_document(
             ensure_ascii=False
         )
 
-# ... existing code ...
-
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
@@ -2300,6 +2296,15 @@ def review_document(
             try:
                 doc = Document(user_file)
                 paragraphs = list(doc.paragraphs)
+                para_by_xml_id = {}
+                para_id_counter = 1
+                
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    para_by_xml_id[para_id_counter] = para
+                    para_id_counter += 1
 
                 for index, comment_text in review_comments:
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
@@ -2314,6 +2319,34 @@ def review_document(
                                 )
                             except Exception:
                                 para.add_run(f"  [AI Comment: {comment_text}]")
+                    elif isinstance(index, str) and index.startswith("pid:"):
+                        try:
+                            para_xml_id = int(index.split(":")[1])
+                            para = para_by_xml_id.get(para_xml_id)
+                            if para and para.runs:
+                                try:
+                                    doc.add_comment(
+                                        runs=[para.runs[0]],
+                                        text=comment_text,
+                                        author="AI Reviewer",
+                                        initials="AI"
+                                    )
+                                except Exception:
+                                    para.add_run(f"  [AI Comment: {comment_text}]")
+                        except Exception:
+                            # Fallback to paragraph index if para_xml_id not found
+                            if isinstance(index, int) and 0 <= index < len(paragraphs):
+                                para = paragraphs[index]
+                                if para.runs:
+                                    try:
+                                        doc.add_comment(
+                                            runs=[para.runs[0]],
+                                            text=comment_text,
+                                            author="AI Reviewer",
+                                            initials="AI"
+                                        )
+                                    except Exception:
+                                        para.add_run(f"  [AI Comment: {comment_text}]")
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
                 )
@@ -2333,9 +2366,11 @@ def review_document(
 
                 for index, comment_text in review_comments:
                     try:
+                        # Handle both old format (integer) and new format (cell reference)
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
                         elif isinstance(index, int):
+                            # For backward compatibility, treat integer as row number
                             cell_ref = f"A{index+1}"
                         else:
                             cell_ref = "A1"
@@ -2344,6 +2379,7 @@ def review_document(
                         add_auto_sized_review_comment(cell, comment_text, author="AI Reviewer")
 
                     except Exception:
+                        # Fallback to A1 if error
                         fallback_cell = ws["A1"]
                         add_auto_sized_review_comment(fallback_cell, comment_text, author="AI Reviewer")
 
@@ -2362,8 +2398,12 @@ def review_document(
         elif file_type == "pptx":
             try:
                 prs = Presentation(user_file)
-
+                # Get document structure to understand how to map comments
+                # For now, we'll use the existing logic but with better handling
+                slides_by_id = {int(s.slide_id): s for s in prs.slides}
+                
                 for index, comment_text in review_comments:
+                    # Handle both old format (integer) and new format (slide_id)
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
                         slide = prs.slides[index]
                         left = top = Inches(0.2)
@@ -2374,6 +2414,32 @@ def review_document(
                         p = text_frame.add_paragraph()
                         p.text = f"AI Reviewer: {comment_text}"
                         p.font.size = PptPt(10)
+                    elif isinstance(index, str) and index.startswith("sid:"):
+                        # New format: using slide_id
+                        try:
+                            slide_id = int(index.split(":")[1])
+                            slide = slides_by_id.get(slide_id)
+                            if slide:
+                                left = top = Inches(0.2)
+                                width = Inches(4)
+                                height = Inches(1)
+                                textbox = slide.shapes.add_textbox(left, top, width, height)
+                                text_frame = textbox.text_frame
+                                p = text_frame.add_paragraph()
+                                p.text = f"AI Reviewer: {comment_text}"
+                                p.font.size = PptPt(10)
+                        except Exception:
+                            # Fallback to slide index if slide_id not found
+                            if isinstance(index, int) and 0 <= index < len(prs.slides):
+                                slide = prs.slides[index]
+                                left = top = Inches(0.2)
+                                width = Inches(4)
+                                height = Inches(1)
+                                textbox = slide.shapes.add_textbox(left, top, width, height)
+                                text_frame = textbox.text_frame
+                                p = text_frame.add_paragraph()
+                                p.text = f"AI Reviewer: {comment_text}"
+                                p.font.size = PptPt(10)
 
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
