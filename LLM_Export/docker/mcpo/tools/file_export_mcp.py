@@ -1320,47 +1320,88 @@ def _apply_text_to_paragraph(para, new_text):
     """
     Apply new text to a paragraph while preserving formatting.
     """
-    original_style = para.style.name if para.style else None
-    original_runs = []
-    for run in para.runs:
-        original_runs.append({
-            "font_name": run.font.name,
-            "font_size": run.font.size,
-            "bold": run.font.bold,
-            "italic": run.font.italic,
-            "underline": run.font.underline,
-            "color": run.font.color.rgb if run.font.color else None
-        })
+    original_style = para.style
+    original_alignment = para.alignment
+    
+    original_run_format = None
+    if para.runs:
+        first_run = para.runs[0]
+        original_run_format = {
+            "font_name": first_run.font.name,
+            "font_size": first_run.font.size,
+            "bold": first_run.font.bold,
+            "italic": first_run.font.italic,
+            "underline": first_run.font.underline,
+            "color": first_run.font.color.rgb if first_run.font.color and first_run.font.color.rgb else None
+        }
     
     for _ in range(len(para.runs)):
         para._element.remove(para.runs[0]._element)
     
     if isinstance(new_text, list):
-        for text_item in new_text:
+        for i, text_item in enumerate(new_text):
+            if i > 0:
+                para.add_run("\n")
             run = para.add_run(str(text_item))
-            if original_runs:
-                _apply_run_formatting(run, original_runs[0])
+            if original_run_format:
+                _apply_run_formatting(run, original_run_format)
     else:
         run = para.add_run(str(new_text))
-        if original_runs:
-            _apply_run_formatting(run, original_runs[0])
+        if original_run_format:
+            _apply_run_formatting(run, original_run_format)
+    
+    if original_style:
+        try:
+            para.style = original_style
+        except Exception:
+            pass
+    if original_alignment is not None:
+        try:
+            para.alignment = original_alignment
+        except Exception:
+            pass
+
 
 def _apply_run_formatting(run, format_dict):
     """
     Apply formatting from a dict to a run.
     """
-    if format_dict.get("font_name"):
-        run.font.name = format_dict["font_name"]
-    if format_dict.get("font_size"):
-        run.font.size = format_dict["font_size"]
-    if format_dict.get("bold") is not None:
-        run.font.bold = format_dict["bold"]
-    if format_dict.get("italic") is not None:
-        run.font.italic = format_dict["italic"]
-    if format_dict.get("underline") is not None:
-        run.font.underline = format_dict["underline"]
-    if format_dict.get("color"):
-        run.font.color.rgb = format_dict["color"]
+    try:
+        if format_dict.get("font_name"):
+            run.font.name = format_dict["font_name"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("font_size"):
+            run.font.size = format_dict["font_size"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("bold") is not None:
+            run.font.bold = format_dict["bold"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("italic") is not None:
+            run.font.italic = format_dict["italic"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("underline") is not None:
+            run.font.underline = format_dict["underline"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("color"):
+            from docx.shared import RGBColor
+            run.font.color.rgb = format_dict["color"]
+    except Exception:
+        pass
 
 @mcp.tool(
     name="full_context_document",
@@ -1398,28 +1439,37 @@ def full_context_document(
 
         if file_type == "docx":
             doc = Document(user_file)
-
+            
+            para_id_counter = 1
+            
             for para in doc.paragraphs:
                 text = para.text.strip()
                 if not text:
                     continue
+                
                 style = para.style.name
-                
                 style_info = _extract_paragraph_style_info(para)
-                
                 element_type = "heading" if style.startswith("Heading") else "paragraph"
+                
+                para_xml_id = id(para._element)
+                
                 structure["body"].append({
-                    "index": index_counter,
+                    "index": para_id_counter,
+                    "para_xml_id": para_xml_id,
+                    "id_key": f"pid:{para_xml_id}",
                     "type": element_type,
                     "style": style,
                     "style_info": style_info,
                     "text": text
                 })
-                index_counter += 1
-
+                para_id_counter += 1
+            
             for table_idx, table in enumerate(doc.tables):
+                table_xml_id = id(table._element)
                 table_info = {
-                    "index": index_counter,
+                    "index": para_id_counter,
+                    "table_xml_id": table_xml_id,
+                    "id_key": f"tid:{table_xml_id}",
                     "type": "table",
                     "style": "Table",
                     "table_id": table_idx,
@@ -1431,10 +1481,13 @@ def full_context_document(
                 for row_idx, row in enumerate(table.rows):
                     row_data = []
                     for col_idx, cell in enumerate(row.cells):
+                        cell_xml_id = id(cell._element)
                         cell_text = cell.text.strip()
                         cell_data = {
                             "row": row_idx,
                             "column": col_idx,
+                            "cell_xml_id": cell_xml_id,
+                            "id_key": f"tid:{table_xml_id}/cid:{cell_xml_id}",
                             "text": cell_text,
                             "style": cell.style.name if hasattr(cell, 'style') else None
                         }
@@ -1442,20 +1495,7 @@ def full_context_document(
                     table_info["cells"].append(row_data)
                 
                 structure["body"].append(table_info)
-                index_counter += 1
-
-            for shape_idx, shape in enumerate(doc.inline_shapes):
-                image_info = {
-                    "index": index_counter,
-                    "type": "image",
-                    "style": "InlineImage",
-                    "shape_id": shape.shape_id if hasattr(shape, 'shape_id') else None,
-                    "width": shape.width if hasattr(shape, 'width') else None,
-                    "height": shape.height if hasattr(shape, 'height') else None,
-                    "alt_text": shape._element.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}docRId') if hasattr(shape, '_element') else None
-                }
-                structure["body"].append(image_info)
-                index_counter += 1
+                para_id_counter += 1
 
         elif file_type == "xlsx":
             wb = load_workbook(user_file, read_only=True, data_only=True)
@@ -1885,26 +1925,121 @@ def edit_document(
         if file_type == "docx":
             try:
                 doc = Document(user_file)
-                paragraphs = list(doc.paragraphs)
-                tables = list(doc.tables)
-
-                edit_items = edits.get("edits", []) if isinstance(edits, dict) and "edits" in edits else edits
+                
+                para_by_xml_id = {}
+                table_by_xml_id = {}
+                cell_by_xml_id = {}
+                
+                for para in doc.paragraphs:
+                    para_xml_id = id(para._element)
+                    para_by_xml_id[para_xml_id] = para
+                
+                for table in doc.tables:
+                    table_xml_id = id(table._element)
+                    table_by_xml_id[table_xml_id] = table
+                    for row in table.rows:
+                        for cell in row.cells:
+                            cell_xml_id = id(cell._element)
+                            cell_by_xml_id[cell_xml_id] = cell
+                
+                if isinstance(edits, dict):
+                    ops = edits.get("ops", []) or []
+                    edit_items = edits.get("edits", []) or []
+                else:
+                    ops = []
+                    edit_items = edits
+                
+                new_refs = {}
+                
+                for op in ops:
+                    if not isinstance(op, (list, tuple)) or not op:
+                        continue
+                    kind = op[0]
+                    
+                    if kind == "insert_after" and len(op) >= 3:
+                        anchor_xml_id = int(op[1])
+                        new_ref = op[2]
+                        
+                        anchor_para = para_by_xml_id.get(anchor_xml_id)
+                        if anchor_para:
+                            para_index = doc.paragraphs.index(anchor_para)
+                            
+                            new_para = doc.add_paragraph()
+                            
+                            anchor_element = anchor_para._element
+                            parent = anchor_element.getparent()
+                            parent.insert(parent.index(anchor_element) + 1, new_para._element)
+                            
+                            new_para.style = anchor_para.style
+                            
+                            new_xml_id = id(new_para._element)
+                            new_refs[new_ref] = new_xml_id
+                            para_by_xml_id[new_xml_id] = new_para
+                    
+                    elif kind == "insert_before" and len(op) >= 3:
+                        anchor_xml_id = int(op[1])
+                        new_ref = op[2]
+                        
+                        anchor_para = para_by_xml_id.get(anchor_xml_id)
+                        if anchor_para:
+                            new_para = doc.add_paragraph()
+                            
+                            anchor_element = anchor_para._element
+                            parent = anchor_element.getparent()
+                            parent.insert(parent.index(anchor_element), new_para._element)
+                            
+                            new_para.style = anchor_para.style
+                            
+                            new_xml_id = id(new_para._element)
+                            new_refs[new_ref] = new_xml_id
+                            para_by_xml_id[new_xml_id] = new_para
+                    
+                    elif kind == "delete_paragraph" and len(op) >= 2:
+                        para_xml_id = int(op[1])
+                        para = para_by_xml_id.get(para_xml_id)
+                        if para:
+                            parent = para._element.getparent()
+                            parent.remove(para._element)
+                            para_by_xml_id.pop(para_xml_id, None)
                 
                 for target, new_text in edit_items:
                     if not isinstance(target, str):
-                        if isinstance(target, int) and 0 <= target < len(paragraphs):
-                            para = paragraphs[target]
-                            _apply_text_to_paragraph(para, new_text)
                         continue
                     
                     t = target.strip()
-                    m = re.match(r"^index:(\d+)$", t, flags=re.I)
+                    
+                    m = re.match(r"^pid:(\d+)$", t, flags=re.I)
                     if m:
-                        index = int(m.group(1))
-                        if 1 <= index <= len(paragraphs):
-                            para = paragraphs[index - 1] 
+                        para_xml_id = int(m.group(1))
+                        para = para_by_xml_id.get(para_xml_id)
+                        if para:
                             _apply_text_to_paragraph(para, new_text)
-                            continue
+                        continue
+                    
+                    m = re.match(r"^tid:(\d+)/cid:(\d+)$", t, flags=re.I)
+                    if m:
+                        table_xml_id = int(m.group(1))
+                        cell_xml_id = int(m.group(2))
+                        cell = cell_by_xml_id.get(cell_xml_id)
+                        if cell:
+                            for para in cell.paragraphs:
+                                for _ in range(len(para.runs)):
+                                    para._element.remove(para.runs[0]._element)
+                            
+                            if cell.paragraphs:
+                                first_para = cell.paragraphs[0]
+                                first_para.add_run(str(new_text))
+                        continue
+                    
+                    m = re.match(r"^n(\d+)$", t, flags=re.I)
+                    if m:
+                        new_ref = t
+                        para_xml_id = new_refs.get(new_ref)
+                        if para_xml_id:
+                            para = para_by_xml_id.get(para_xml_id)
+                            if para:
+                                _apply_text_to_paragraph(para, new_text)
+                        continue
                 
                 edited_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
