@@ -1316,6 +1316,51 @@ def _extract_cell_style_info(cell):
         "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
     }
 
+def _apply_text_to_paragraph(para, new_text):
+    """
+    Apply new text to a paragraph while preserving formatting.
+    """
+    original_style = para.style.name if para.style else None
+    original_runs = []
+    for run in para.runs:
+        original_runs.append({
+            "font_name": run.font.name,
+            "font_size": run.font.size,
+            "bold": run.font.bold,
+            "italic": run.font.italic,
+            "underline": run.font.underline,
+            "color": run.font.color.rgb if run.font.color else None
+        })
+    
+    para.clear()
+    
+    if isinstance(new_text, list):
+        for text_item in new_text:
+            run = para.add_run(str(text_item))
+            if original_runs:
+                _apply_run_formatting(run, original_runs[0])
+    else:
+        run = para.add_run(str(new_text))
+        if original_runs:
+            _apply_run_formatting(run, original_runs[0])
+
+def _apply_run_formatting(run, format_dict):
+    """
+    Apply formatting from a dict to a run.
+    """
+    if format_dict.get("font_name"):
+        run.font.name = format_dict["font_name"]
+    if format_dict.get("font_size"):
+        run.font.size = format_dict["font_size"]
+    if format_dict.get("bold") is not None:
+        run.font.bold = format_dict["bold"]
+    if format_dict.get("italic") is not None:
+        run.font.italic = format_dict["italic"]
+    if format_dict.get("underline") is not None:
+        run.font.underline = format_dict["underline"]
+    if format_dict.get("color"):
+        run.font.color.rgb = format_dict["color"]
+
 @mcp.tool(
     name="full_context_document",
     title="Return the structure of a document (docx, xlsx, pptx)",
@@ -1793,51 +1838,28 @@ def edit_document(
             try:
                 doc = Document(user_file)
                 paragraphs = list(doc.paragraphs)
+                tables = list(doc.tables)
 
                 edit_items = edits.get("edits", []) if isinstance(edits, dict) and "edits" in edits else edits
                 
-                for index, new_text in edit_items:
-                    if isinstance(index, int) and 0 <= index < len(paragraphs):
-                        para = paragraphs[index]
-                        
-                        original_style = para.style.name if para.style else None
-                        original_runs = []
-                        for run in para.runs:
-                            original_runs.append({
-                                "text": run.text,
-                                "font_name": run.font.name,
-                                "font_size": run.font.size,
-                                "bold": run.font.bold,
-                                "italic": run.font.italic,
-                                "underline": run.font.underline,
-                                "color": run.font.color.rgb if run.font.color else None
-                            })
-                        
-                        para.clear()
-                        
-                        if isinstance(new_text, list):
-                            for text_item in new_text:
-                                run = para.add_run(str(text_item))
-                                if original_runs:
-                                    first_run = original_runs[0]
-                                    run.font.name = first_run["font_name"] if first_run["font_name"] else run.font.name
-                                    run.font.size = first_run["font_size"] if first_run["font_size"] else run.font.size
-                                    run.font.bold = first_run["bold"] if first_run["bold"] is not None else run.font.bold
-                                    run.font.italic = first_run["italic"] if first_run["italic"] is not None else run.font.italic
-                                    run.font.underline = first_run["underline"] if first_run["underline"] is not None else run.font.underline
-                                    if first_run["color"]:
-                                        run.font.color.rgb = first_run["color"]
-                        else:
-                            run = para.add_run(str(new_text))
-                            if original_runs:
-                                first_run = original_runs[0]
-                                run.font.name = first_run["font_name"] if first_run["font_name"] else run.font.name
-                                run.font.size = first_run["font_size"] if first_run["font_size"] else run.font.size
-                                run.font.bold = first_run["bold"] if first_run["bold"] is not None else run.font.bold
-                                run.font.italic = first_run["italic"] if first_run["italic"] is not None else run.font.italic
-                                run.font.underline = first_run["underline"] if first_run["underline"] is not None else run.font.underline
-                                if first_run["color"]:
-                                    run.font.color.rgb = first_run["color"]
+                for target, new_text in edit_items:
+                    if not isinstance(target, str):
+                        # Ancienne méthode: index numérique direct
+                        if isinstance(target, int) and 0 <= target < len(paragraphs):
+                            para = paragraphs[target]
+                            _apply_text_to_paragraph(para, new_text)
+                        continue
+                    
+                    # Nouvelle méthode: notation "index:X"
+                    t = target.strip()
+                    m = re.match(r"^index:(\d+)$", t, flags=re.I)
+                    if m:
+                        index = int(m.group(1))
+                        # Chercher dans les paragraphes
+                        if 1 <= index <= len(paragraphs):
+                            para = paragraphs[index - 1]  # index-1 car full_context commence à 1
+                            _apply_text_to_paragraph(para, new_text)
+                            continue
                 
                 edited_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
