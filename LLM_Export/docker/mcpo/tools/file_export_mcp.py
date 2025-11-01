@@ -12,6 +12,7 @@ import shutil
 import datetime
 import tarfile
 import zipfile
+import hashlib
 import py7zr
 import logging
 import requests
@@ -273,6 +274,12 @@ def search_pexels(query):
     except Exception as e:
         log.error(f"Unexpected error searching image for '{query}': {e}")
     return None
+
+def _para_hash(para, idx):
+    text = para.text.strip()
+    style = para.style.name if para.style else "Normal"
+    h = hashlib.md5(f"{idx}:{text}:{style}".encode()).hexdigest()
+    return h[:12]
 
 def _resolve_log_level(val: str | None) -> int:
     if not val:
@@ -1451,7 +1458,7 @@ def full_context_document(
                 style_info = _extract_paragraph_style_info(para)
                 element_type = "heading" if style.startswith("Heading") else "paragraph"
                 
-                para_xml_id = id(para._element)
+                para_xml_id = para_id_counter
                 
                 structure["body"].append({
                     "index": para_id_counter,
@@ -1946,9 +1953,13 @@ def edit_document(
                 table_by_xml_id = {}
                 cell_by_xml_id = {}
                 
+                para_id_counter = 1
                 for para in doc.paragraphs:
-                    para_xml_id = id(para._element)
-                    para_by_xml_id[para_xml_id] = para
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    para_by_xml_id[para_id_counter] = para
+                    para_id_counter += 1
                 
                 for table in doc.tables:
                     table_xml_id = id(table._element)
