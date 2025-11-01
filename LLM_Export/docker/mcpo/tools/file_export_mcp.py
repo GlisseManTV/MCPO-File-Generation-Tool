@@ -1813,7 +1813,7 @@ def edit_document(
     
     The `edits` parameter must be a dictionary with the following structure:
     {
-      "ops": [...],      # Operations (slides only for PPTX)
+      "ops": [...],      # Operations (structure modifications)
       "edits": [...]     # Content modifications
     }
     
@@ -1848,24 +1848,30 @@ def edit_document(
     ## DOCX (Word) Files
     
     ### Operations (ops):
-    Not supported for DOCX files. Leave empty: "ops": []
+    - ["insert_after", <para_xml_id:int>, "nK"]   # Insert new paragraph after specified paragraph
+    - ["insert_before", <para_xml_id:int>, "nK"]  # Insert new paragraph before specified paragraph
+    - ["delete_paragraph", <para_xml_id:int>]     # Delete specified paragraph
     
     ### Edits (edits):
-    - ["index:<paragraph_index>", text_or_list]  # Edit paragraph by index (from full_context_document)
+    - ["pid:<para_xml_id>", text_or_list]           # Edit paragraph by XML ID (from full_context_document)
+    - ["tid:<table_xml_id>/cid:<cell_xml_id>", text] # Edit table cell by XML ID
+    - ["nK", text_or_list]                          # Set content of new paragraph nK
     
     Notes:
-    - Use the index values returned by full_context_document() (starts at 1)
+    - Use the para_xml_id and id_key values returned by full_context_document()
     - text_or_list can be a string or list of strings
     - Original formatting (font, size, style) is preserved
     
     Example for DOCX:
     {
       "edits": {
-        "ops": [],
+        "ops": [
+          ["insert_after", 140234567890123, "n0"]
+        ],
         "edits": [
-          ["index:1", "Updated first paragraph"],
-          ["index:3", "Updated third paragraph"],
-          ["index:5", ["Line 1", "Line 2"]]
+          ["pid:140234567890123", "Updated first paragraph"],
+          ["pid:140234567890456", "Updated third paragraph"],
+          ["n0", "New paragraph content"]
         ]
       },
       "file_id": "...",
@@ -1875,22 +1881,31 @@ def edit_document(
     ## XLSX (Excel) Files
     
     ### Operations (ops):
-    Not supported for XLSX files. Leave empty: "ops": []
+    - ["insert_row", "<sheet_name>", <row_idx:int>]     # Insert row at position
+    - ["delete_row", "<sheet_name>", <row_idx:int>]     # Delete row at position
+    - ["insert_column", "<sheet_name>", <col_idx:int>]  # Insert column at position
+    - ["delete_column", "<sheet_name>", <col_idx:int>]  # Delete column at position
     
     ### Edits (edits):
-    - ["<cell_ref>", value]  # Edit cell by reference (e.g., "A1", "B5", "C10")
+    - ["sheet:<name>/cell:<ref>", value]  # Edit cell by sheet name and reference
+    - ["cell:<ref>", value]                # Edit cell in active sheet
+    - ["<ref>", value]
+    - ["<ref>", value]                     # Edit cell in active sheet (shorthand, e.g., "A1")
     
     Notes:
-    - Cell references must match the "index" values from full_context_document()
-    - Always use letter-number format (e.g., "A1", not 0 or index:1)
+    - Cell references must match the format from full_context_document()
+    - Use letter-number format (e.g., "A1", "B5", not numeric indices)
+    - Original cell formatting (font, colors, number format) is preserved
     
     Example for XLSX:
     {
       "edits": {
-        "ops": [],
+        "ops": [
+          ["insert_row", "Sheet1", 5]
+        ],
         "edits": [
-          ["A1", "New Header"],
-          ["B3", 12345],
+          ["sheet:Sheet1/cell:A1", "New Header"],
+          ["sheet:Sheet1/cell:B3", 12345],
           ["C5", "Updated value"]
         ]
       },
@@ -1903,10 +1918,11 @@ def edit_document(
     {"file_path_download": "[Download filename_edited.ext](/api/v1/files/<id>/content)"}
     
     ## Important Notes
-    1. Always call full_context_document() first to get the correct indices/references
-    2. For DOCX: use "index:N" where N comes from full_context_document
-    3. For XLSX: use cell references like "A1", "B5" (as returned by full_context_document)
-    4. For PPTX: use "sid:X/shid:Y" for shape IDs (as returned by full_context_document)
+    1. ALWAYS call full_context_document() first to get the correct IDs/references
+    2. For DOCX: use "pid:<para_xml_id>" where para_xml_id comes from full_context_document
+    3. For XLSX: use "sheet:<name>/cell:<ref>" format (as returned by full_context_document)
+    4. For PPTX: use "sid:<slide_id>/shid:<shape_id>" format (as returned by full_context_document)
+    5. All formats support ops for structure modifications and edits for content modifications
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
