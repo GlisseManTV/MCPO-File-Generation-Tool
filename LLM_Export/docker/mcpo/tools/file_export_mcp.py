@@ -21,7 +21,6 @@ import markdown2
 import tempfile
 from pathlib import Path
 from lxml import etree
-from copy import deepcopy
 from PIL import Image
 from docx import Document
 from docx.shared import Inches
@@ -1768,7 +1767,7 @@ def ensure_slot_textbox(slide, slot):
         return slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
     return slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1.5))
 
-def _layout_has(layout, want_title=False, want_body=False):  # ADD
+def _layout_has(layout, want_title=False, want_body=False):
     has_title = has_body = False
     for ph in getattr(layout, "placeholders", []):
         pf = getattr(ph, "placeholder_format", None)
@@ -1783,7 +1782,7 @@ def _layout_has(layout, want_title=False, want_body=False):  # ADD
             has_body = True
     return (not want_title or has_title) and (not want_body or has_body)
 
-def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
+def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):
     if anchor_slide and _layout_has(anchor_slide.slide_layout, needs_title, needs_body):
         return anchor_slide.slide_layout
     for layout in prs.slide_layouts:
@@ -1791,7 +1790,7 @@ def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
             return layout
     return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
 
-def _collect_needs(edit_items):  # ADD
+def _collect_needs(edit_items):
     needs = {}
     for tgt, _ in edit_items:
         if not isinstance(tgt, str):
@@ -2185,7 +2184,7 @@ def edit_document(
             ensure_ascii=False
         )
 def _get_pptx_namespaces():
-    """Retourne les namespaces XML pour PowerPoint"""
+    """Returns XML namespaces for PowerPoint"""
     return {
         'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
         'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
@@ -2194,96 +2193,16 @@ def _get_pptx_namespaces():
         'p14': 'http://schemas.microsoft.com/office/powerpoint/2010/main'
     }
 
-def _ensure_comment_authors_in_zip(zip_path):
-    """
-    S'assure que le fichier commentAuthors.xml existe dans le ZIP et retourne l'ID de l'auteur
-    
-    Args:
-        zip_path: Chemin vers le fichier PPTX (ZIP)
-    
-    Returns:
-        int: L'ID de l'auteur AI Reviewer
-    """
-    namespaces = _get_pptx_namespaces()
-    
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        file_list = zf.namelist()
-        
-        if 'ppt/commentAuthors.xml' in file_list:
-            with zf.open('ppt/commentAuthors.xml') as f:
-                root = etree.fromstring(f.read())
-            
-            for author in root.findall('.//p:cmAuthor', namespaces):
-                if author.get('name') == 'AI Reviewer':
-                    return int(author.get('id')), root
-            
-            existing_ids = [int(a.get('id')) for a in root.findall('.//p:cmAuthor', namespaces)]
-            new_id = max(existing_ids) + 1 if existing_ids else 0
-            
-            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
-            author.set('id', str(new_id))
-            author.set('name', 'AI Reviewer')
-            author.set('initials', 'AI')
-            author.set('lastIdx', '1')
-            author.set('clrIdx', str(new_id % 8))
-            
-            return new_id, root
-        else:
-            root = etree.Element(
-                f'{{{namespaces["p"]}}}cmAuthorLst',
-                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
-            )
-            
-            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
-            author.set('id', '0')
-            author.set('name', 'AI Reviewer')
-            author.set('initials', 'AI')
-            author.set('lastIdx', '1')
-            author.set('clrIdx', '0')
-            
-            return 0, root
-
-
-def _get_or_create_comments_in_zip(zip_path, slide_num):
-    """
-    Récupère ou crée le fichier comments pour une slide donnée
-    
-    Args:
-        zip_path: Chemin vers le fichier PPTX (ZIP)
-        slide_num: Numéro de la slide (1-based)
-    
-    Returns:
-        etree.Element: L'élément racine du fichier comments
-    """
-    namespaces = _get_pptx_namespaces()
-    comment_file = f'ppt/comments/comment{slide_num}.xml'
-    
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        file_list = zf.namelist()
-        
-        if comment_file in file_list:
-            with zf.open(comment_file) as f:
-                root = etree.fromstring(f.read())
-            return root
-        else:
-            root = etree.Element(
-                f'{{{namespaces["p"]}}}cmLst',
-                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
-            )
-            return root
-
-
 def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, x=100, y=100):
     """
-    Ajoute un commentaire natif PowerPoint en manipulant directement le ZIP
-    
-    Args:
-        pptx_path: Chemin vers le fichier PPTX
-        slide_num: Numéro de la slide (1-based)
-        comment_text: Le texte du commentaire
-        author_id: L'ID de l'auteur
-        x: Position X en EMU (pas en pixels !)
-        y: Position Y en EMU (pas en pixels !)
+    Add a native PowerPoint comment by directly manipulating the ZIP file.
+        Args:
+        pptx_path: Path to the PPTX file
+        slide_num: Slide number (1-based)
+        comment_text: Comment text
+        author_id: Author ID
+        x: X position in EMU (not pixels!)
+        y: Y position in EMU (not pixels!)
     """
     namespaces = _get_pptx_namespaces()
     
@@ -2427,20 +2346,6 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
         
         log.debug(f"Native comment added to slide {slide_num} with idx={next_id}")
 
-def _update_content_types(package):
-    """
-    Met à jour [Content_Types].xml pour inclure les types de commentaires si nécessaire
-    """
-    content_types = package.content_types
-    
-    comment_types = {
-        '/ppt/commentAuthors.xml': 'application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml',
-        '/ppt/comments/comment*.xml': 'application/vnd.openxmlformats-officedocument.presentationml.comments+xml'
-    }
-    
-    pass
-    
-    pass
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
