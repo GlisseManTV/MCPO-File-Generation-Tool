@@ -2698,6 +2698,8 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 if __name__ == "__main__":
     mcp.run()
 
+from sse_starlette.sse import EventSourceResponse
+
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
     
@@ -2705,8 +2707,6 @@ async def handle_sse(request: Request) -> Response:
         try:
             message = await request.json()
             log.debug(f"Received POST message: {message}")
-            
-            from mcp.types import JSONRPCMessage
             
             response = {
                 "jsonrpc": "2.0",
@@ -2724,7 +2724,7 @@ async def handle_sse(request: Request) -> Response:
                     },
                     "serverInfo": {
                         "name": "file_export_mcp",
-                        "version": "1.0.0"
+                        "version": SCRIPT_VERSION
                     }
                 }
             elif method == "tools/list":
@@ -2736,14 +2736,8 @@ async def handle_sse(request: Request) -> Response:
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "data": {
-                                        "type": "object",
-                                        "description": "File data including format, filename, content, etc."
-                                    },
-                                    "persistent": {
-                                        "type": "boolean",
-                                        "description": "Whether to keep files permanently"
-                                    }
+                                    "data": {"type": "object", "description": "File data including format, filename, content, etc."},
+                                    "persistent": {"type": "boolean", "description": "Whether to keep files permanently"}
                                 },
                                 "required": ["data"]
                             }
@@ -2754,18 +2748,45 @@ async def handle_sse(request: Request) -> Response:
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {
+                                    "files_data": {"type": "array", "description": "Array of file data objects"},
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Return the structure, content, and metadata of a document",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"}
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"},
+                                    "review_comments": {
                                         "type": "array",
-                                        "description": "Array of file data objects"
-                                    },
-                                    "archive_format": {
-                                        "type": "string",
-                                        "enum": ["zip", "7z", "tar.gz"]
-                                    },
-                                    "archive_name": {
-                                        "type": "string"
+                                        "description": "Array of [index, comment] tuples. For Excel: index must be cell reference (e.g. 'A1')",
+                                        "items": {
+                                            "type": "array",
+                                            "minItems": 2,
+                                            "maxItems": 2
+                                        }
                                     }
-                                }
+                                },
+                                "required": ["file_id", "file_name", "review_comments"]
                             }
                         }
                     ]
@@ -2776,6 +2797,7 @@ async def handle_sse(request: Request) -> Response:
                 arguments = params.get("arguments", {})
                 
                 try:
+                    result = None
                     if tool_name == "create_file":
                         result = create_file(**arguments)
                         response["result"] = {
@@ -2796,6 +2818,26 @@ async def handle_sse(request: Request) -> Response:
                                 }
                             ]
                         }
+                    elif tool_name == "full_context_document":
+                        result = full_context_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": result
+                                }
+                            ]
+                        }
+                    elif tool_name == "review_document":
+                        result = review_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                                }
+                            ]
+                        }
                     else:
                         response["error"] = {
                             "code": -32601,
@@ -2807,38 +2849,51 @@ async def handle_sse(request: Request) -> Response:
                         "code": -32000,
                         "message": str(e)
                     }
+            else:
+                response["error"] = {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
             
             return JSONResponse(response)
             
         except Exception as e:
             log.error(f"Error handling POST request: {e}", exc_info=True)
             return JSONResponse(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32000,
-                        "message": str(e)
-                    }
-                },
+                {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
                 status_code=500
             )
     
     else:
-        async def simple_event_generator():
-            yield "data: {\"type\": \"connected\", \"message\": \"MCP Server Ready\"}\n\n"
-            while True:
-                await asyncio.sleep(30)
-                yield "data: {\"type\": \"heartbeat\", \"timestamp\": \"" + str(int(time.time())) + "\"}\n\n"
+        async def event_generator():
+            """Generator for SSE events"""
+            try:
+                yield {
+                    "event": "endpoint",
+                    "data": json.dumps({
+                        "endpoint": "/messages"
+                    })
+                }
+                
+                import asyncio
+                while True:
+                    await asyncio.sleep(15)
+                    yield {
+                        "event": "ping",
+                        "data": ""
+                    }
+                    
+            except asyncio.CancelledError:
+                log.info("SSE connection closed by client")
+                raise
+            except Exception as e:
+                log.error(f"SSE Error: {e}", exc_info=True)
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
         
-        return StreamingResponse(
-            simple_event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
+        return EventSourceResponse(event_generator())
 
 async def handle_messages(request: Request) -> Response:
     """Handle POST requests to /messages endpoint"""
@@ -2867,9 +2922,24 @@ app = Starlette(
 
 if __name__ == "__main__":
     import sys
-    port = int(os.getenv("MCP_HTTP_PORT", "9004"))
-    host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
-    log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
-    log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
-    log.info(f"SSE endpoint: http://{host}:{port}/sse")
-    mcp.run(transport='sse')
+ 
+    if "--sse" in sys.argv or "--http" in sys.argv:
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+        
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
+        log.info(f"SSE endpoint: http://{host}:{port}/sse")
+        log.info(f"Messages endpoint: http://{host}:{port}/messages")
+        
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            access_log=False,
+            log_level="info",
+            use_colors=False
+        )
+    else:
+        log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
+        mcp.run()
