@@ -12,14 +12,11 @@ import shutil
 import datetime
 import tarfile
 import zipfile
-import hashlib
 import py7zr
 import logging
 import requests
 from requests.auth import HTTPBasicAuth
 import threading
-from pptx.util import Inches
-from pptx.enum.shapes import PP_PLACEHOLDER 
 import markdown2
 import tempfile
 from PIL import Image
@@ -37,6 +34,8 @@ from openpyxl.comments import Comment
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
+from pptx.util import Inches
+from pptx.enum.shapes import PP_PLACEHOLDER 
 from pptx.parts.image import Image
 from pptx.enum.text import MSO_AUTO_SIZE
 from io import BytesIO
@@ -46,7 +45,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.8.0-alpha"
+SCRIPT_VERSION = "0.8.0-beta"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -274,12 +273,6 @@ def search_pexels(query):
     except Exception as e:
         log.error(f"Unexpected error searching image for '{query}': {e}")
     return None
-
-def _para_hash(para, idx):
-    text = para.text.strip()
-    style = para.style.name if para.style else "Normal"
-    h = hashlib.md5(f"{idx}:{text}:{style}".encode()).hexdigest()
-    return h[:12]
 
 def _resolve_log_level(val: str | None) -> int:
     if not val:
@@ -1808,7 +1801,6 @@ def _collect_needs(edit_items):  # ADD
             needs[ref][slot] = True
     return needs
 
-
 @mcp.tool()
 def edit_document(
     file_id: str,
@@ -2267,7 +2259,6 @@ def review_document(
                                 except Exception:
                                     para.add_run(f"  [AI Comment: {comment_text}]")
                         except Exception:
-                            # Fallback to paragraph index if para_xml_id not found
                             if isinstance(index, int) and 0 <= index < len(paragraphs):
                                 para = paragraphs[index]
                                 if para.runs:
@@ -2299,11 +2290,9 @@ def review_document(
 
                 for index, comment_text in review_comments:
                     try:
-                        # Handle both old format (integer) and new format (cell reference)
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
                         elif isinstance(index, int):
-                            # For backward compatibility, treat integer as row number
                             cell_ref = f"A{index+1}"
                         else:
                             cell_ref = "A1"
@@ -2312,7 +2301,6 @@ def review_document(
                         add_auto_sized_review_comment(cell, comment_text, author="AI Reviewer")
 
                     except Exception:
-                        # Fallback to A1 if error
                         fallback_cell = ws["A1"]
                         add_auto_sized_review_comment(fallback_cell, comment_text, author="AI Reviewer")
 
@@ -2331,12 +2319,9 @@ def review_document(
         elif file_type == "pptx":
             try:
                 prs = Presentation(user_file)
-                # Get document structure to understand how to map comments
-                # For now, we'll use the existing logic but with better handling
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
                 
                 for index, comment_text in review_comments:
-                    # Handle both old format (integer) and new format (slide_id)
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
                         slide = prs.slides[index]
                         left = top = Inches(0.2)
@@ -2348,7 +2333,6 @@ def review_document(
                         p.text = f"AI Reviewer: {comment_text}"
                         p.font.size = PptPt(10)
                     elif isinstance(index, str) and index.startswith("sid:"):
-                        # New format: using slide_id
                         try:
                             slide_id = int(index.split(":")[1])
                             slide = slides_by_id.get(slide_id)
@@ -2362,7 +2346,6 @@ def review_document(
                                 p.text = f"AI Reviewer: {comment_text}"
                                 p.font.size = PptPt(10)
                         except Exception:
-                            # Fallback to slide index if slide_id not found
                             if isinstance(index, int) and 0 <= index < len(prs.slides):
                                 slide = prs.slides[index]
                                 left = top = Inches(0.2)
