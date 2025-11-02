@@ -2195,6 +2195,262 @@ def edit_document(
             ensure_ascii=False
         )
 
+def _get_pptx_namespaces():
+    """Retourne les namespaces XML pour PowerPoint"""
+    return {
+        'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+        'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+        'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        'p15': 'http://schemas.microsoft.com/office/powerpoint/2012/main',
+        'p14': 'http://schemas.microsoft.com/office/powerpoint/2010/main'
+    }
+
+def _ensure_comment_authors_in_zip(zip_path):
+    """
+    S'assure que le fichier commentAuthors.xml existe dans le ZIP et retourne l'ID de l'auteur
+    
+    Args:
+        zip_path: Chemin vers le fichier PPTX (ZIP)
+    
+    Returns:
+        int: L'ID de l'auteur AI Reviewer
+    """
+    namespaces = _get_pptx_namespaces()
+    
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        file_list = zf.namelist()
+        
+        if 'ppt/commentAuthors.xml' in file_list:
+            with zf.open('ppt/commentAuthors.xml') as f:
+                root = etree.fromstring(f.read())
+            
+            for author in root.findall('.//p:cmAuthor', namespaces):
+                if author.get('name') == 'AI Reviewer':
+                    return int(author.get('id')), root
+            
+            existing_ids = [int(a.get('id')) for a in root.findall('.//p:cmAuthor', namespaces)]
+            new_id = max(existing_ids) + 1 if existing_ids else 0
+            
+            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
+            author.set('id', str(new_id))
+            author.set('name', 'AI Reviewer')
+            author.set('initials', 'AI')
+            author.set('lastIdx', '1')
+            author.set('clrIdx', str(new_id % 8))
+            
+            return new_id, root
+        else:
+            root = etree.Element(
+                f'{{{namespaces["p"]}}}cmAuthorLst',
+                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
+            )
+            
+            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
+            author.set('id', '0')
+            author.set('name', 'AI Reviewer')
+            author.set('initials', 'AI')
+            author.set('lastIdx', '1')
+            author.set('clrIdx', '0')
+            
+            return 0, root
+
+
+def _get_or_create_comments_in_zip(zip_path, slide_num):
+    """
+    Récupère ou crée le fichier comments pour une slide donnée
+    
+    Args:
+        zip_path: Chemin vers le fichier PPTX (ZIP)
+        slide_num: Numéro de la slide (1-based)
+    
+    Returns:
+        etree.Element: L'élément racine du fichier comments
+    """
+    namespaces = _get_pptx_namespaces()
+    comment_file = f'ppt/comments/comment{slide_num}.xml'
+    
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        file_list = zf.namelist()
+        
+        if comment_file in file_list:
+            with zf.open(comment_file) as f:
+                root = etree.fromstring(f.read())
+            return root
+        else:
+            root = etree.Element(
+                f'{{{namespaces["p"]}}}cmLst',
+                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
+            )
+            return root
+
+
+def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, x=100, y=100):
+    """
+    Ajoute un commentaire natif PowerPoint en manipulant directement le ZIP
+    
+    Args:
+        pptx_path: Chemin vers le fichier PPTX
+        slide_num: Numéro de la slide (1-based)
+        comment_text: Le texte du commentaire
+        author_id: L'ID de l'auteur
+        x: Position X en EMU (pas en pixels !)
+        y: Position Y en EMU (pas en pixels !)
+    """
+    namespaces = _get_pptx_namespaces()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        
+        with zipfile.ZipFile(pptx_path, 'r') as zf:
+            zf.extractall(temp_path)
+        
+        authors_file = temp_path / 'ppt' / 'commentAuthors.xml'
+        if authors_file.exists():
+            root = etree.parse(str(authors_file)).getroot()
+            found = False
+            for author in root.findall('.//p:cmAuthor', namespaces):
+                if author.get('name') == 'AI Reviewer':
+                    author_id = int(author.get('id'))
+                    found = True
+                    break
+            
+            if not found:
+                existing_ids = [int(a.get('id')) for a in root.findall('.//p:cmAuthor', namespaces)]
+                author_id = max(existing_ids) + 1 if existing_ids else 0
+                author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
+                author.set('id', str(author_id))
+                author.set('name', 'AI Reviewer')
+                author.set('initials', 'AI')
+                author.set('lastIdx', '1')
+                author.set('clrIdx', str(author_id % 8))
+        else:
+            authors_file.parent.mkdir(parents=True, exist_ok=True)
+            root = etree.Element(
+                f'{{{namespaces["p"]}}}cmAuthorLst',
+                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
+            )
+            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
+            author.set('id', str(author_id))
+            author.set('name', 'AI Reviewer')
+            author.set('initials', 'AI')
+            author.set('lastIdx', '1')
+            author.set('clrIdx', '0')
+            
+            rels_file = temp_path / 'ppt' / '_rels' / 'presentation.xml.rels'
+            if rels_file.exists():
+                rels_root = etree.parse(str(rels_file)).getroot()
+                existing_ids = [int(rel.get('Id')[3:]) for rel in rels_root.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')]
+                next_rid = max(existing_ids) + 1 if existing_ids else 1
+                
+                rel = etree.SubElement(rels_root, '{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')
+                rel.set('Id', f'rId{next_rid}')
+                rel.set('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors')
+                rel.set('Target', 'commentAuthors.xml')
+                
+                with open(rels_file, 'wb') as f:
+                    f.write(etree.tostring(rels_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        with open(authors_file, 'wb') as f:
+            f.write(etree.tostring(root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        comments_dir = temp_path / 'ppt' / 'comments'
+        comments_dir.mkdir(parents=True, exist_ok=True)
+        comment_file = comments_dir / f'comment{slide_num}.xml'
+        
+        if comment_file.exists():
+            comments_root = etree.parse(str(comment_file)).getroot()
+        else:
+            comments_root = etree.Element(
+                f'{{{namespaces["p"]}}}cmLst',
+                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
+            )
+            
+            slide_rels_file = temp_path / 'ppt' / 'slides' / '_rels' / f'slide{slide_num}.xml.rels'
+            if slide_rels_file.exists():
+                slide_rels_root = etree.parse(str(slide_rels_file)).getroot()
+            else:
+                slide_rels_file.parent.mkdir(parents=True, exist_ok=True)
+                slide_rels_root = etree.Element(
+                    '{http://schemas.openxmlformats.org/package/2006/relationships}Relationships'
+                )
+            
+            existing_ids = [int(rel.get('Id')[3:]) for rel in slide_rels_root.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')]
+            next_rid = max(existing_ids) + 1 if existing_ids else 1
+            
+            rel = etree.SubElement(slide_rels_root, '{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')
+            rel.set('Id', f'rId{next_rid}')
+            rel.set('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments')
+            rel.set('Target', f'../comments/comment{slide_num}.xml')
+            
+            with open(slide_rels_file, 'wb') as f:
+                f.write(etree.tostring(slide_rels_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        existing_ids = [int(c.get('idx')) for c in comments_root.findall('.//p:cm', namespaces)]
+        next_id = max(existing_ids) + 1 if existing_ids else 1
+        
+        comment = etree.SubElement(comments_root, f'{{{namespaces["p"]}}}cm')
+        comment.set('authorId', str(author_id))
+        comment.set('dt', datetime.datetime.now().isoformat())
+        comment.set('idx', str(next_id))
+        
+        pos = etree.SubElement(comment, f'{{{namespaces["p"]}}}pos')
+        pos.set('x', str(int(x)))
+        pos.set('y', str(int(y)))
+        
+        text_elem = etree.SubElement(comment, f'{{{namespaces["p"]}}}text')
+        text_elem.text = comment_text
+        
+        with open(comment_file, 'wb') as f:
+            f.write(etree.tostring(comments_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        content_types_file = temp_path / '[Content_Types].xml'
+        if content_types_file.exists():
+            ct_root = etree.parse(str(content_types_file)).getroot()
+            ns = {'ct': 'http://schemas.openxmlformats.org/package/2006/content-types'}
+            
+            has_authors = False
+            has_comments = False
+            
+            for override in ct_root.findall('.//ct:Override', ns):
+                if override.get('PartName') == '/ppt/commentAuthors.xml':
+                    has_authors = True
+                if override.get('PartName') == f'/ppt/comments/comment{slide_num}.xml':
+                    has_comments = True
+            
+            if not has_authors:
+                override = etree.SubElement(ct_root, '{http://schemas.openxmlformats.org/package/2006/content-types}Override')
+                override.set('PartName', '/ppt/commentAuthors.xml')
+                override.set('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml')
+            
+            if not has_comments:
+                override = etree.SubElement(ct_root, '{http://schemas.openxmlformats.org/package/2006/content-types}Override')
+                override.set('PartName', f'/ppt/comments/comment{slide_num}.xml')
+                override.set('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.comments+xml')
+            
+            with open(content_types_file, 'wb') as f:
+                f.write(etree.tostring(ct_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        with zipfile.ZipFile(pptx_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in temp_path.rglob('*'):
+                if file_path.is_file():
+                    arcname = str(file_path.relative_to(temp_path))
+                    zf.write(file_path, arcname)
+        
+        log.debug(f"Native comment added to slide {slide_num} with idx={next_id}")
+
+def _update_content_types(package):
+    """
+    Met à jour [Content_Types].xml pour inclure les types de commentaires si nécessaire
+    """
+    content_types = package.content_types
+    
+    comment_types = {
+        '/ppt/commentAuthors.xml': 'application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml',
+        '/ppt/comments/comment*.xml': 'application/vnd.openxmlformats-officedocument.presentationml.comments+xml'
+    }
+    
+    pass
+
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
@@ -2338,49 +2594,89 @@ def review_document(
 
         elif file_type == "pptx":
             try:
-                prs = Presentation(user_file)
+                temp_pptx = os.path.join(temp_folder, "temp_input.pptx")
+                with open(temp_pptx, 'wb') as f:
+                    f.write(user_file.read())
+                
+                prs = Presentation(temp_pptx)
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
                 
+                comments_by_slide = {}
+                
                 for index, comment_text in review_comments:
+                    slide_num = None
+                    slide_id = None
+                    
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
-                        slide = prs.slides[index]
-                        left = top = Inches(0.2)
-                        width = Inches(4)
-                        height = Inches(1)
-                        textbox = slide.shapes.add_textbox(left, top, width, height)
-                        text_frame = textbox.text_frame
-                        p = text_frame.add_paragraph()
-                        p.text = f"AI Reviewer: {comment_text}"
-                        p.font.size = PptPt(10)
-                    elif isinstance(index, str) and index.startswith("sid:"):
+                        slide_num = index + 1
+                        slide_id = list(slides_by_id.keys())[index]
+                    elif isinstance(index, str):
+                        if index.startswith("sid:") and "/shid:" in index:
+                            try:
+                                slide_id = int(index.split("/")[0].replace("sid:", ""))
+                                if slide_id in slides_by_id:
+                                    slide_num = list(slides_by_id.keys()).index(slide_id) + 1
+                            except Exception as e:
+                                log.warning(f"Failed to parse shape ID: {e}")
+                        elif index.startswith("sid:"):
+                            try:
+                                slide_id = int(index.split(":")[1])
+                                if slide_id in slides_by_id:
+                                    slide_num = list(slides_by_id.keys()).index(slide_id) + 1
+                            except Exception as e:
+                                log.warning(f"Failed to parse slide ID: {e}")
+                    
+                    if slide_num and slide_id:
+                        if slide_num not in comments_by_slide:
+                            comments_by_slide[slide_num] = []
+                        
+                        shape_info = ""
+                        if "/shid:" in str(index):
+                            try:
+                                shape_id = int(str(index).split("/shid:")[1])
+                                shape_info = f"[Shape {shape_id}] "
+                            except:
+                                pass
+                        
+                        comments_by_slide[slide_num].append(f"{shape_info}{comment_text}")
+                comment_offset = 0              
+                for slide_num, comments in comments_by_slide.items():
+                    comment_start_x = 5000
+                    comment_start_y = 1000
+                    comment_spacing_y = 1500
+                    
+                    for idx, comment in enumerate(comments):
                         try:
-                            slide_id = int(index.split(":")[1])
-                            slide = slides_by_id.get(slide_id)
-                            if slide:
-                                left = top = Inches(0.2)
-                                width = Inches(4)
-                                height = Inches(1)
-                                textbox = slide.shapes.add_textbox(left, top, width, height)
-                                text_frame = textbox.text_frame
-                                p = text_frame.add_paragraph()
-                                p.text = f"AI Reviewer: {comment_text}"
-                                p.font.size = PptPt(10)
-                        except Exception:
-                            if isinstance(index, int) and 0 <= index < len(prs.slides):
-                                slide = prs.slides[index]
-                                left = top = Inches(0.2)
-                                width = Inches(4)
-                                height = Inches(1)
-                                textbox = slide.shapes.add_textbox(left, top, width, height)
-                                text_frame = textbox.text_frame
-                                p = text_frame.add_paragraph()
-                                p.text = f"AI Reviewer: {comment_text}"
-                                p.font.size = PptPt(10)
+                            y_position = comment_start_y + (idx * comment_spacing_y)
+                            
+                            _add_native_pptx_comment_zip(
+                                pptx_path=temp_pptx,
+                                slide_num=slide_num,
+                                comment_text=f"• {comment}",
+                                author_id=0,
+                                x=comment_start_x,
+                                y=y_position
+                            )
+                            log.debug(f"Native PowerPoint comment added to slide {slide_num} at position x={comment_start_x}, y={y_position}")
+                        except Exception as e:
+                            log.warning(f"Failed to add native comment to slide {slide_num}: {e}", exc_info=True)
+                            prs_fallback = Presentation(temp_pptx)
+                            slide = prs_fallback.slides[slide_num - 1]
+                            left = top = Inches(0.2)
+                            width = Inches(4)
+                            height = Inches(1)
+                            textbox = slide.shapes.add_textbox(left, top, width, height)
+                            text_frame = textbox.text_frame
+                            p = text_frame.add_paragraph()
+                            p.text = f"AI Reviewer: {comment}"
+                            p.font.size = PptPt(10)
+                            prs_fallback.save(temp_pptx)
 
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
                 )
-                prs.save(reviewed_path)
+                shutil.copy(temp_pptx, reviewed_path)
+                
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",

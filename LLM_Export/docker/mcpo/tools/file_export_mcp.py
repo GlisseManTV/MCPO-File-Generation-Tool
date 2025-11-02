@@ -2282,8 +2282,8 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
         slide_num: Numéro de la slide (1-based)
         comment_text: Le texte du commentaire
         author_id: L'ID de l'auteur
-        x: Position X en pixels
-        y: Position Y en pixels
+        x: Position X en EMU (pas en pixels !)
+        y: Position Y en EMU (pas en pixels !)
     """
     namespaces = _get_pptx_namespaces()
     
@@ -2383,8 +2383,8 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
         comment.set('idx', str(next_id))
         
         pos = etree.SubElement(comment, f'{{{namespaces["p"]}}}pos')
-        pos.set('x', str(int(x * 9525)))
-        pos.set('y', str(int(y * 9525)))
+        pos.set('x', str(int(x)))
+        pos.set('y', str(int(y)))
         
         text_elem = etree.SubElement(comment, f'{{{namespaces["p"]}}}text')
         text_elem.text = comment_text
@@ -2437,6 +2437,8 @@ def _update_content_types(package):
         '/ppt/commentAuthors.xml': 'application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml',
         '/ppt/comments/comment*.xml': 'application/vnd.openxmlformats-officedocument.presentationml.comments+xml'
     }
+    
+    pass
     
     pass
 @mcp.tool(
@@ -2589,33 +2591,65 @@ def review_document(
                 prs = Presentation(temp_pptx)
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
                 
+                comments_by_slide = {}
+                
                 for index, comment_text in review_comments:
                     slide_num = None
+                    slide_id = None
                     
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
-                        slide_num = index + 1  # 1-based
-                    elif isinstance(index, str) and index.startswith("sid:"):
-                        try:
-                            slide_id = int(index.split(":")[1])
-                            if slide_id in slides_by_id:
-                                slide_num = list(slides_by_id.keys()).index(slide_id) + 1
-                        except Exception:
-                            if isinstance(index, int) and 0 <= index < len(prs.slides):
-                                slide_num = index + 1
+                        slide_num = index + 1
+                        slide_id = list(slides_by_id.keys())[index]
+                    elif isinstance(index, str):
+                        if index.startswith("sid:") and "/shid:" in index:
+                            try:
+                                slide_id = int(index.split("/")[0].replace("sid:", ""))
+                                if slide_id in slides_by_id:
+                                    slide_num = list(slides_by_id.keys()).index(slide_id) + 1
+                            except Exception as e:
+                                log.warning(f"Failed to parse shape ID: {e}")
+                        elif index.startswith("sid:"):
+                            try:
+                                slide_id = int(index.split(":")[1])
+                                if slide_id in slides_by_id:
+                                    slide_num = list(slides_by_id.keys()).index(slide_id) + 1
+                            except Exception as e:
+                                log.warning(f"Failed to parse slide ID: {e}")
                     
-                    if slide_num:
+                    if slide_num and slide_id:
+                        if slide_num not in comments_by_slide:
+                            comments_by_slide[slide_num] = []
+                        
+                        shape_info = ""
+                        if "/shid:" in str(index):
+                            try:
+                                shape_id = int(str(index).split("/shid:")[1])
+                                shape_info = f"[Shape {shape_id}] "
+                            except:
+                                pass
+                        
+                        comments_by_slide[slide_num].append(f"{shape_info}{comment_text}")
+                comment_offset = 0              
+                for slide_num, comments in comments_by_slide.items():
+                    comment_start_x = 5000
+                    comment_start_y = 1000
+                    comment_spacing_y = 1500
+                    
+                    for idx, comment in enumerate(comments):
                         try:
+                            y_position = comment_start_y + (idx * comment_spacing_y)
+                            
                             _add_native_pptx_comment_zip(
                                 pptx_path=temp_pptx,
                                 slide_num=slide_num,
-                                comment_text=comment_text,
+                                comment_text=f"• {comment}",
                                 author_id=0,
-                                x=50,
-                                y=50
+                                x=comment_start_x,
+                                y=y_position
                             )
-                            log.debug(f"Native PowerPoint comment added to slide {slide_num}")
+                            log.debug(f"Native PowerPoint comment added to slide {slide_num} at position x={comment_start_x}, y={y_position}")
                         except Exception as e:
-                            log.warning(f"Failed to add native comment: {e}", exc_info=True)
+                            log.warning(f"Failed to add native comment to slide {slide_num}: {e}", exc_info=True)
                             prs_fallback = Presentation(temp_pptx)
                             slide = prs_fallback.slides[slide_num - 1]
                             left = top = Inches(0.2)
@@ -2624,7 +2658,7 @@ def review_document(
                             textbox = slide.shapes.add_textbox(left, top, width, height)
                             text_frame = textbox.text_frame
                             p = text_frame.add_paragraph()
-                            p.text = f"AI Reviewer: {comment_text}"
+                            p.text = f"AI Reviewer: {comment}"
                             p.font.size = PptPt(10)
                             prs_fallback.save(temp_pptx)
 
