@@ -51,7 +51,7 @@ from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
-from starlette.responses import Response, JSONResponse
+from starlette.responses import Response, JSONResponse, StreamingResponse
 
 SCRIPT_VERSION = "0.7.1"
 
