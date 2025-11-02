@@ -53,7 +53,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.7.1"
+SCRIPT_VERSION = "0.7.2"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1828,7 +1828,8 @@ async def handle_sse(request: Request) -> Response:
                     )
                 except Exception as e:
                     log.error(f"SSE Error: {e}", exc_info=True)
-        
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
