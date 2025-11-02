@@ -1846,8 +1846,6 @@ def edit_document(
         - ["insert_column", "sheet_name", col_idx]
         - ["delete_column", "sheet_name", col_idx]
     - conten_edits:
-        - ["sheet:<name>/cell:<ref>", value]
-        - ["cell:<ref>", value]
         - ["<ref>", value]
 
     ## Notes
