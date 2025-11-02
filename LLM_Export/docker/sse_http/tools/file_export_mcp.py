@@ -1692,9 +1692,6 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
     return {"url": _public_url(folder_path, archive_filename)}
 
-if __name__ == "__main__":
-    mcp.run()
-
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
     
