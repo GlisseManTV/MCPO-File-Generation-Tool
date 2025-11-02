@@ -2826,7 +2826,6 @@ async def handle_sse(request: Request) -> Response:
     else:
         async def simple_event_generator():
             yield "data: {\"type\": \"connected\", \"message\": \"MCP Server Ready\"}\n\n"
-            # Отправляем heartbeat каждые 30 секунд
             while True:
                 await asyncio.sleep(30)
                 yield "data: {\"type\": \"heartbeat\", \"timestamp\": \"" + str(int(time.time())) + "\"}\n\n"
@@ -2867,11 +2866,10 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    # import sys
+    import sys
     port = int(os.getenv("MCP_HTTP_PORT", "9004"))
     host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
     log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
     log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
     log.info(f"SSE endpoint: http://{host}:{port}/sse")
-
     mcp.run(transport='sse')
