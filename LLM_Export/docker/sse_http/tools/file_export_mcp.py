@@ -2732,57 +2732,229 @@ async def handle_sse(request: Request) -> Response:
                     "tools": [
                         {
                             "name": "create_file",
-                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, etc.)",
+                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, xml, py, etc.). Supports rich content including titles, paragraphs, lists, tables, images via queries, and more.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "data": {"type": "object", "description": "File data including format, filename, content, etc."},
-                                    "persistent": {"type": "boolean", "description": "Whether to keep files permanently"}
+                                    "data": {
+                                        "type": "object",
+                                        "description": "File data configuration",
+                                        "properties": {
+                                            "format": {
+                                                "type": "string",
+                                                "enum": ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md"],
+                                                "description": "Output file format"
+                                            },
+                                            "filename": {
+                                                "type": "string",
+                                                "description": "Name of the file to create (optional, will be auto-generated if not provided)"
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "Document title (for docx, pptx, xlsx, pdf)"
+                                            },
+                                            "content": {
+                                                "description": "Content varies by format. For pdf/docx: array of objects with type/text. For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
+                                                "oneOf": [
+                                                    {"type": "array"},
+                                                    {"type": "string"}
+                                                ]
+                                            },
+                                            "slides_data": {
+                                                "type": "array",
+                                                "description": "For pptx format only: array of slide objects",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "title": {"type": "string"},
+                                                        "content": {
+                                                            "type": "array",
+                                                            "items": {"type": "string"}
+                                                        },
+                                                        "image_query": {
+                                                            "type": "string",
+                                                            "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                        },
+                                                        "image_position": {
+                                                            "type": "string",
+                                                            "enum": ["left", "right", "top", "bottom"],
+                                                            "description": "Position of the image on the slide"
+                                                        },
+                                                        "image_size": {
+                                                            "type": "string",
+                                                            "enum": ["small", "medium", "large"],
+                                                            "description": "Size of the image"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "required": ["format"]
+                                    },
+                                    "persistent": {
+                                        "type": "boolean",
+                                        "description": "Whether to keep files permanently (default: false, files deleted after delay)"
+                                    }
                                 },
                                 "required": ["data"]
                             }
                         },
                         {
                             "name": "generate_and_archive",
-                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
+                            "description": "Generate multiple files at once and create an archive (zip, 7z, or tar.gz). Perfect for creating document packages with multiple formats.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {"type": "array", "description": "Array of file data objects"},
-                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
-                                    "archive_name": {"type": "string"},
-                                    "persistent": {"type": "boolean"}
+                                    "files_data": {
+                                        "type": "array",
+                                        "description": "Array of file configurations (same structure as create_file data)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "format": {"type": "string"},
+                                                "filename": {"type": "string"},
+                                                "title": {"type": "string"},
+                                                "content": {
+                                                    "oneOf": [
+                                                        {"type": "array"},
+                                                        {"type": "string"}
+                                                    ]
+                                                },
+                                                "slides_data": {"type": "array"}
+                                            },
+                                            "required": ["format"]
+                                        }
+                                    },
+                                    "archive_format": {
+                                        "type": "string",
+                                        "enum": ["zip", "7z", "tar.gz"],
+                                        "description": "Archive format (default: zip)"
+                                    },
+                                    "archive_name": {
+                                        "type": "string",
+                                        "description": "Name of the archive file (without extension, timestamp will be added)"
+                                    },
+                                    "persistent": {
+                                        "type": "boolean",
+                                        "description": "Whether to keep the archive permanently"
+                                    }
                                 },
                                 "required": ["files_data"]
                             }
                         },
                         {
                             "name": "full_context_document",
-                            "description": "Return the structure, content, and metadata of a document",
+                            "description": "Extract and return the complete structure, content, and metadata of a document (docx, xlsx, pptx). Returns a JSON structure with indexed elements (paragraphs, headings, tables, cells, slides, images) that can be referenced for editing or review.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
-                                    "file_name": {"type": "string", "description": "The name of the file"}
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI file upload"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension (e.g., 'report.docx', 'data.xlsx', 'presentation.pptx')"
+                                    }
                                 },
                                 "required": ["file_id", "file_name"]
                             }
                         },
                         {
-                            "name": "review_document",
-                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
+                            "name": "edit_document",
+                            "description": "Edit an existing document (docx, xlsx, pptx) using structured operations. Supports inserting/deleting elements and updating content. ALWAYS call full_context_document() first to get proper IDs and references. Preserves formatting and returns a download link for the edited file.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
-                                    "file_name": {"type": "string", "description": "The name of the file"},
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                    "edits": {
+                                        "type": "object",
+                                        "description": "Edit operations and content changes",
+                                        "properties": {
+                                            "ops": {
+                                                "type": "array",
+                                                "description": "Structural operations (insert/delete). For PPTX: ['insert_after', slide_id, 'nK'], ['insert_before', slide_id, 'nK'], ['delete_slide', slide_id]. For DOCX: ['insert_after', para_xml_id, 'nK'], ['insert_before', para_xml_id, 'nK'], ['delete_paragraph', para_xml_id]. For XLSX: ['insert_row', 'sheet_name', row_idx], ['delete_row', 'sheet_name', row_idx], ['insert_column', 'sheet_name', col_idx], ['delete_column', 'sheet_name', col_idx]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "oneOf": [
+                                                            {"type": "string"},
+                                                            {"type": "integer"}
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "content_edits": {
+                                                "type": "array",
+                                                "description": "Content updates as [target, new_text] pairs. For PPTX: ['sid:<slide_id>/shid:<shape_id>', text], ['nK:slot:title', text], ['nK:slot:body', text]. For DOCX: ['pid:<para_xml_id>', text], ['tid:<table_xml_id>/cid:<cell_xml_id>', text], ['nK', text]. For XLSX: ['A1', value], ['B5', value]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "minItems": 2,
+                                                    "maxItems": 2,
+                                                    "items": [
+                                                        {
+                                                            "type": "string",
+                                                            "description": "Target reference (element ID or cell ref)"
+                                                        },
+                                                        {
+                                                            "description": "New content (text string or array of strings for lists)",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "array", "items": {"type": "string"}},
+                                                                {"type": "number"},
+                                                                {"type": "boolean"}
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "edits"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel files, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word/PowerPoint, use integer indices.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
                                     "review_comments": {
                                         "type": "array",
-                                        "description": "Array of [index, comment] tuples. For Excel: index must be cell reference (e.g. 'A1')",
+                                        "description": "Array of [index, comment_text] tuples. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index. For PowerPoint: integer slide index.",
                                         "items": {
                                             "type": "array",
                                             "minItems": 2,
-                                            "maxItems": 2
+                                            "maxItems": 2,
+                                            "items": [
+                                                {
+                                                    "description": "Index/reference: For Excel use cell reference (e.g., 'A1'), for Word/PowerPoint use integer",
+                                                    "oneOf": [
+                                                        {"type": "string"},
+                                                        {"type": "integer"}
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "string",
+                                                    "description": "Comment or correction text"
+                                                }
+                                            ]
                                         }
                                     }
                                 },
@@ -2825,6 +2997,16 @@ async def handle_sse(request: Request) -> Response:
                                 {
                                     "type": "text",
                                     "text": result
+                                }
+                            ]
+                        }
+                    elif tool_name == "edit_document":
+                        result = edit_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
                                 }
                             ]
                         }
