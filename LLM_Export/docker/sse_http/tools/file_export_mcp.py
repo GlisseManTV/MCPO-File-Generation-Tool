@@ -1819,17 +1819,19 @@ async def handle_sse(request: Request) -> Response:
     
     else:
         async def event_generator():
-            async with SseServerTransport("/messages") as (read_stream, write_stream):
-                try:
-                    await mcp._mcp_server.run(
-                        read_stream,
-                        write_stream,
-                        mcp._mcp_server.create_initialization_options()
-                    )
-                except Exception as e:
-                    log.error(f"SSE Error: {e}", exc_info=True)
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
+            transport = SseServerTransport("/messages")
+            read_stream, write_stream = await transport.open()
+            try:
+                await mcp._mcp_server.run(
+                    read_stream,
+                    write_stream,
+                    mcp._mcp_server.create_initialization_options()
+                )
+            except Exception as e:
+                log.error(f"SSE Error: {e}", exc_info=True)
+            finally:
+                await transport.close()
+        
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
