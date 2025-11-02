@@ -1692,6 +1692,8 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
     return {"url": _public_url(folder_path, archive_filename)}
 
+from sse_starlette.sse import EventSourceResponse
+
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
     
@@ -1730,14 +1732,8 @@ async def handle_sse(request: Request) -> Response:
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "data": {
-                                        "type": "object",
-                                        "description": "File data including format, filename, content, etc."
-                                    },
-                                    "persistent": {
-                                        "type": "boolean",
-                                        "description": "Whether to keep files permanently"
-                                    }
+                                    "data": {"type": "object", "description": "File data including format, filename, content, etc."},
+                                    "persistent": {"type": "boolean", "description": "Whether to keep files permanently"}
                                 },
                                 "required": ["data"]
                             }
@@ -1748,17 +1744,9 @@ async def handle_sse(request: Request) -> Response:
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {
-                                        "type": "array",
-                                        "description": "Array of file data objects"
-                                    },
-                                    "archive_format": {
-                                        "type": "string",
-                                        "enum": ["zip", "7z", "tar.gz"]
-                                    },
-                                    "archive_name": {
-                                        "type": "string"
-                                    }
+                                    "files_data": {"type": "array", "description": "Array of file data objects"},
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"}
                                 }
                             }
                         }
@@ -1772,48 +1760,22 @@ async def handle_sse(request: Request) -> Response:
                 try:
                     if tool_name == "create_file":
                         result = create_file(**arguments)
-                        response["result"] = {
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"File created successfully: {result.get('url')}"
-                                }
-                            ]
-                        }
+                        response["result"] = {"content": [{"type": "text", "text": f"File created successfully: {result.get('url')}"}]}
                     elif tool_name == "generate_and_archive":
                         result = generate_and_archive(**arguments)
-                        response["result"] = {
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Archive created successfully: {result.get('url')}"
-                                }
-                            ]
-                        }
+                        response["result"] = {"content": [{"type": "text", "text": f"Archive created successfully: {result.get('url')}"}]}
                     else:
-                        response["error"] = {
-                            "code": -32601,
-                            "message": f"Tool not found: {tool_name}"
-                        }
+                        response["error"] = {"code": -32601, "message": f"Tool not found: {tool_name}"}
                 except Exception as e:
                     log.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-                    response["error"] = {
-                        "code": -32000,
-                        "message": str(e)
-                    }
+                    response["error"] = {"code": -32000, "message": str(e)}
             
             return JSONResponse(response)
             
         except Exception as e:
             log.error(f"Error handling POST request: {e}", exc_info=True)
             return JSONResponse(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32000,
-                        "message": str(e)
-                    }
-                },
+                {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
                 status_code=500
             )
     
@@ -1831,16 +1793,8 @@ async def handle_sse(request: Request) -> Response:
                 log.error(f"SSE Error: {e}", exc_info=True)
             finally:
                 await transport.close()
-        
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
+
+        return EventSourceResponse(event_generator())
 
 async def handle_messages(request: Request) -> Response:
     """Handle POST requests to /messages endpoint"""
