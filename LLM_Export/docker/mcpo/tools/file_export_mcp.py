@@ -19,6 +19,9 @@ from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
 import tempfile
+from pathlib import Path
+from lxml import etree
+from copy import deepcopy
 from PIL import Image
 from docx import Document
 from docx.shared import Inches
@@ -34,7 +37,6 @@ from openpyxl.comments import Comment
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
-from pptx.util import Inches
 from pptx.enum.shapes import PP_PLACEHOLDER 
 from pptx.parts.image import Image
 from pptx.enum.text import MSO_AUTO_SIZE
