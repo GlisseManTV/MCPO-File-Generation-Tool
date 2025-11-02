@@ -1784,16 +1784,18 @@ async def handle_sse(request: Request) -> Response:
             transport = SseServerTransport("/messages")
             read_stream, write_stream = await transport.open()
             try:
-                await mcp._mcp_server.run(
+                async for message in mcp._mcp_server.run(
                     read_stream,
                     write_stream,
                     mcp._mcp_server.create_initialization_options()
-                )
+                ):
+                    yield message
             except Exception as e:
                 log.error(f"SSE Error: {e}", exc_info=True)
+                yield f"data: {str(e)}\n\n"
             finally:
                 await transport.close()
-
+        
         return EventSourceResponse(event_generator())
 
 async def handle_messages(request: Request) -> Response:
