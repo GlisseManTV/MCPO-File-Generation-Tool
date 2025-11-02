@@ -2211,9 +2211,19 @@ def review_document(
     Generic document review function that works with different document types.
     File type is automatically detected from the file extension.
     Returns a markdown hyperlink for downloading the reviewed document.
-    For Excel files (.xlsx), the index must always be a cell reference (e.g. "A1", "B3", "C10"),
-    corresponding to the "index" key returned by the full_context_document() function.
-    Never use integer values for Excel cells.
+    
+    For Excel files (.xlsx):
+    - The index must be a cell reference (e.g. "A1", "B3", "C10")
+    - These correspond to the "index" key returned by the full_context_document() function
+    - Never use integer values for Excel cells
+    
+    For Word files (.docx):
+    - The index should be a paragraph ID in the format "pid:<para_xml_id>"
+    - These correspond to the "id_key" field returned by the full_context_document() function
+    
+    For PowerPoint files (.pptx):
+    - The index should be a slide ID in the format "sid:<slide_id>"
+    - These correspond to the "id_key" field returned by the full_context_document() function
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
