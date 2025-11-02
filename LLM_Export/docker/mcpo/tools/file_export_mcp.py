@@ -1815,7 +1815,7 @@ def edit_document(
         file_name: Name of the document file.
         edits: Dictionary with:
             - "ops": List of structural changes.
-            - "conten_edits": List of content updates.
+            - "content_edits": List of content updates.
 
     ## Supported Formats
 
@@ -1824,7 +1824,7 @@ def edit_document(
         - ["insert_after", slide_id, "nK"]
         - ["insert_before", slide_id, "nK"]
         - ["delete_slide", slide_id]
-    - conten_edits:
+    - content_edits:
         - ["sid:<slide_id>/shid:<shape_id>", text_or_list]
         - ["nK:slot:title", text_or_list]
         - ["nK:slot:body", text_or_list]
@@ -1834,7 +1834,7 @@ def edit_document(
         - ["insert_after", para_xml_id, "nK"]
         - ["insert_before", para_xml_id, "nK"]
         - ["delete_paragraph", para_xml_id]
-    - conten_edits:
+    - content_edits:
         - ["pid:<para_xml_id>", text_or_list]
         - ["tid:<table_xml_id>/cid:<cell_xml_id>", text]
         - ["nK", text_or_list]
@@ -1845,7 +1845,7 @@ def edit_document(
         - ["delete_row", "sheet_name", row_idx]
         - ["insert_column", "sheet_name", col_idx]
         - ["delete_column", "sheet_name", col_idx]
-    - conten_edits:
+    - content_edits:
         - ["<ref>", value]
 
     ## Notes
@@ -1894,7 +1894,7 @@ def edit_document(
           
                 if isinstance(edits, dict):
                     ops = edits.get("ops", []) or []
-                    edit_items = edits.get("conten_edits", []) or []
+                    edit_items = edits.get("content_edits", []) or []
                 else:
                     ops = []
                     edit_items = edits
@@ -2008,7 +2008,7 @@ def edit_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
 
-                edit_items = edits.get("conten_edits", []) if isinstance(edits, dict) and "conten_edits" in edits else edits
+                edit_items = edits.get("content_edits", []) if isinstance(edits, dict) and "content_edits" in edits else edits
           
                 for index, new_text in edit_items:
                     try:
@@ -2042,7 +2042,7 @@ def edit_document(
                 prs = Presentation(user_file)
                 if isinstance(edits, dict):
                     ops = edits.get("ops", []) or []
-                    edit_items = edits.get("conten_edits", []) or []
+                    edit_items = edits.get("content_edits", []) or []
                 else:
                     ops = []
                     edit_items = edits
