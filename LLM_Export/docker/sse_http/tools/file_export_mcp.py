@@ -1702,8 +1702,6 @@ async def handle_sse(request: Request) -> Response:
             message = await request.json()
             log.debug(f"Received POST message: {message}")
             
-            from mcp.types import JSONRPCMessage
-            
             response = {
                 "jsonrpc": "2.0",
                 "id": message.get("id"),
@@ -1720,7 +1718,7 @@ async def handle_sse(request: Request) -> Response:
                     },
                     "serverInfo": {
                         "name": "file_export_mcp",
-                        "version": "1.0.0"
+                        "version": SCRIPT_VERSION
                     }
                 }
             elif method == "tools/list":
@@ -1746,8 +1744,43 @@ async def handle_sse(request: Request) -> Response:
                                 "properties": {
                                     "files_data": {"type": "array", "description": "Array of file data objects"},
                                     "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
-                                    "archive_name": {"type": "string"}
-                                }
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Return the structure, content, and metadata of a document",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"}
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"},
+                                    "review_comments": {
+                                        "type": "array",
+                                        "description": "Array of [index, comment] tuples. For Excel: index must be cell reference (e.g. 'A1')",
+                                        "items": {
+                                            "type": "array",
+                                            "minItems": 2,
+                                            "maxItems": 2
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "review_comments"]
                             }
                         }
                     ]
@@ -1758,17 +1791,63 @@ async def handle_sse(request: Request) -> Response:
                 arguments = params.get("arguments", {})
                 
                 try:
+                    result = None
                     if tool_name == "create_file":
                         result = create_file(**arguments)
-                        response["result"] = {"content": [{"type": "text", "text": f"File created successfully: {result.get('url')}"}]}
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"File created successfully: {result.get('url')}"
+                                }
+                            ]
+                        }
                     elif tool_name == "generate_and_archive":
                         result = generate_and_archive(**arguments)
-                        response["result"] = {"content": [{"type": "text", "text": f"Archive created successfully: {result.get('url')}"}]}
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"Archive created successfully: {result.get('url')}"
+                                }
+                            ]
+                        }
+                    elif tool_name == "full_context_document":
+                        result = full_context_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": result
+                                }
+                            ]
+                        }
+                    elif tool_name == "review_document":
+                        result = review_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                                }
+                            ]
+                        }
                     else:
-                        response["error"] = {"code": -32601, "message": f"Tool not found: {tool_name}"}
+                        response["error"] = {
+                            "code": -32601,
+                            "message": f"Tool not found: {tool_name}"
+                        }
                 except Exception as e:
                     log.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-                    response["error"] = {"code": -32000, "message": str(e)}
+                    response["error"] = {
+                        "code": -32000,
+                        "message": str(e)
+                    }
+            else:
+                response["error"] = {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
             
             return JSONResponse(response)
             
@@ -1781,20 +1860,32 @@ async def handle_sse(request: Request) -> Response:
     
     else:
         async def event_generator():
-            transport = SseServerTransport("/messages")
-            read_stream, write_stream = await transport.open()
+            """Generator for SSE events"""
             try:
-                async for message in mcp._mcp_server.run(
-                    read_stream,
-                    write_stream,
-                    mcp._mcp_server.create_initialization_options()
-                ):
-                    yield message
+                yield {
+                    "event": "endpoint",
+                    "data": json.dumps({
+                        "endpoint": "/messages"
+                    })
+                }
+                
+                import asyncio
+                while True:
+                    await asyncio.sleep(15)
+                    yield {
+                        "event": "ping",
+                        "data": ""
+                    }
+                    
+            except asyncio.CancelledError:
+                log.info("SSE connection closed by client")
+                raise
             except Exception as e:
                 log.error(f"SSE Error: {e}", exc_info=True)
-                yield f"data: {str(e)}\n\n"
-            finally:
-                await transport.close()
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
         
         return EventSourceResponse(event_generator())
 
