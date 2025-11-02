@@ -1716,7 +1716,7 @@ def _set_text_with_runs(shape, new_content):
                 r.text = seg
                 _apply_font(r, spec["font"])
 
-def shape_by_id(slide, shape_id):  # ADD
+def shape_by_id(slide, shape_id):
     sid = int(shape_id)
     for sh in slide.shapes:
         val = getattr(sh, "shape_id", None) or getattr(getattr(sh, "_element", None), "cNvPr", None)
@@ -1816,120 +1816,53 @@ def edit_document(
     edits: dict
 ) -> dict:
     """
-    Edits an existing document of various types (docx, xlsx, pptx).
-    
-    The `edits` parameter must be a dictionary with the following structure:
-    {
-      "ops": [...],      # Operations (structure modifications)
-      "conten_edits": [...]     # Content modifications
-    }
-    
-    ## PPTX (PowerPoint) Files
-    
-    ### Operations (ops):
-    - ["insert_after", <slide_id:int>, "nK"]  # Insert new slide after specified slide
-    - ["insert_before", <slide_id:int>, "nK"] # Insert new slide before specified slide
-    - ["delete_slide", <slide_id:int>]        # Delete specified slide
-    
-    ### Content edits (conten_edits):
-    - ["sid:<slide_id>/shid:<shape_id>", text_or_list]  # Edit specific shape by ID
-    - ["nK:slot:title", text_or_list]                   # Set title of new slide nK
-    - ["nK:slot:body", text_or_list]                    # Set body of new slide nK
-    
-    Example for PPTX:
-    {
-      "edits": {
-        "ops": [
-          ["insert_after", 256, "n0"]
-        ],
-        "conten_edits": [
-          ["sid:256/shid:4", ["Line 1", "Line 2", "Line 3"]],
-          ["n0:slot:title", "New Slide Title"],
-          ["n0:slot:body", ["Bullet 1", "Bullet 2"]]
-        ]
-      },
-      "file_id": "...",
-      "file_name": "presentation.pptx"
-    }
-    
-    ## DOCX (Word) Files
-    
-    ### Operations (ops):
-    - ["insert_after", <para_xml_id:int>, "nK"]   # Insert new paragraph after specified paragraph
-    - ["insert_before", <para_xml_id:int>, "nK"]  # Insert new paragraph before specified paragraph
-    - ["delete_paragraph", <para_xml_id:int>]     # Delete specified paragraph
-    
-    ### Content edits (conten_edits):
-    - ["pid:<para_xml_id>", text_or_list]           # Edit paragraph by XML ID (from full_context_document)
-    - ["tid:<table_xml_id>/cid:<cell_xml_id>", text] # Edit table cell by XML ID
-    - ["nK", text_or_list]                          # Set content of new paragraph nK
-    
-    Notes:
-    - Use the para_xml_id and id_key values returned by full_context_document()
-    - text_or_list can be a string or list of strings
-    - Original formatting (font, size, style) is preserved
-    
-    Example for DOCX:
-    {
-      "edits": {
-        "ops": [
-          ["insert_after", 140234567890123, "n0"]
-        ],
-        "conten_edits": [
-          ["pid:140234567890123", "Updated first paragraph"],
-          ["pid:140234567890456", "Updated third paragraph"],
-          ["n0", "New paragraph content"]
-        ]
-      },
-      "file_id": "...",
-      "file_name": "document.docx"
-    }
-    
-    ## XLSX (Excel) Files
-    
-    ### Operations (ops):
-    - ["insert_row", "<sheet_name>", <row_idx:int>]     # Insert row at position
-    - ["delete_row", "<sheet_name>", <row_idx:int>]     # Delete row at position
-    - ["insert_column", "<sheet_name>", <col_idx:int>]  # Insert column at position
-    - ["delete_column", "<sheet_name>", <col_idx:int>]  # Delete column at position
-    
-    ### Content edits (conten_edits):
-    - ["sheet:<name>/cell:<ref>", value]  # Edit cell by sheet name and reference
-    - ["cell:<ref>", value]                # Edit cell in active sheet
-    - ["<ref>", value]
-    - ["<ref>", value]                     # Edit cell in active sheet (shorthand, e.g., "A1")
-    
-    Notes:
-    - Cell references must match the format from full_context_document()
-    - Use letter-number format (e.g., "A1", "B5", not numeric indices)
-    - Original cell formatting (font, colors, number format) is preserved
-    
-    Example for XLSX:
-    {
-      "edits": {
-        "ops": [
-          ["insert_row", "Sheet1", 5]
-        ],
-        "conten_edits": [
-          ["sheet:Sheet1/cell:A1", "New Header"],
-          ["sheet:Sheet1/cell:B3", 12345],
-          ["C5", "Updated value"]
-        ]
-      },
-      "file_id": "...",
-      "file_name": "spreadsheet.xlsx"
-    }
-    
-    ## Return Value
-    Returns a markdown hyperlink to download the edited document:
-    {"file_path_download": "[Download filename_edited.ext](/api/v1/files/<id>/content)"}
-    
-    ## Important Notes
-    1. ALWAYS call full_context_document() first to get the correct IDs/references
-    2. For DOCX: use "pid:<para_xml_id>" where para_xml_id comes from full_context_document
-    3. For XLSX: use "sheet:<name>/cell:<ref>" format (as returned by full_context_document)
-    4. For PPTX: use "sid:<slide_id>/shid:<shape_id>" format (as returned by full_context_document)
-    5. All formats support ops for structure modifications and conten_edits for content modifications
+    Edits a document (docx, xlsx, pptx) using structured operations.
+
+    Args:
+        file_id: Unique identifier for the document.
+        file_name: Name of the document file.
+        edits: Dictionary with:
+            - "ops": List of structural changes.
+            - "conten_edits": List of content updates.
+
+    ## Supported Formats
+
+    ### PPTX (PowerPoint)
+    - ops: 
+        - ["insert_after", slide_id, "nK"]
+        - ["insert_before", slide_id, "nK"]
+        - ["delete_slide", slide_id]
+    - conten_edits:
+        - ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+        - ["nK:slot:title", text_or_list]
+        - ["nK:slot:body", text_or_list]
+
+    ### DOCX (Word)
+    - ops:
+        - ["insert_after", para_xml_id, "nK"]
+        - ["insert_before", para_xml_id, "nK"]
+        - ["delete_paragraph", para_xml_id]
+    - conten_edits:
+        - ["pid:<para_xml_id>", text_or_list]
+        - ["tid:<table_xml_id>/cid:<cell_xml_id>", text]
+        - ["nK", text_or_list]
+
+    ### XLSX (Excel)
+    - ops:
+        - ["insert_row", "sheet_name", row_idx]
+        - ["delete_row", "sheet_name", row_idx]
+        - ["insert_column", "sheet_name", col_idx]
+        - ["delete_column", "sheet_name", col_idx]
+    - conten_edits:
+        - ["sheet:<name>/cell:<ref>", value]
+        - ["cell:<ref>", value]
+        - ["<ref>", value]
+
+    ## Notes
+    - Always call `full_context_document()` first to get IDs.
+    - Use cell refs like "A1", "B5".
+    - Formatting is preserved.
+    - Returns a download link to the edited file.
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
