@@ -2695,8 +2695,7 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
     return {"url": _public_url(folder_path, archive_filename)}
 
-if __name__ == "__main__":
-    mcp.run()
+from sse_starlette.sse import EventSourceResponse
 
 from sse_starlette.sse import EventSourceResponse
 
@@ -2805,7 +2804,35 @@ async def handle_sse(request: Request) -> Response:
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {
+                                    "files_data": {"type": "array", "description": "Array of file data objects"},
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Return the structure, content, and metadata of a document",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"}
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"},
+                                    "review_comments": {
                                         "type": "array",
                                         "description": "Array of file configurations (same structure as create_file data)",
                                         "items": {
