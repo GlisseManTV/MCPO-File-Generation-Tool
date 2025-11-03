@@ -1427,45 +1427,41 @@ async def full_context_document(
     Returns:
         dict: A JSON object with the structure of the document.
     """
-    logging.info("=" * 50)
-    logging.info("DÉBUT full_context_document")
+    # DIAGNOSTIC COMPLET
+    logging.info("=" * 80)
+    logging.info("DIAGNOSTIC CONTEXTE MCP")
+    logging.info("=" * 80)
     
-    try:
-        logging.info(f"Context type: {type(ctx)}")
-        logging.info(f"Has request_context: {hasattr(ctx, 'request_context')}")
-        
-        if hasattr(ctx, 'request_context'):
-            logging.info(f"Has request: {hasattr(ctx.request_context, 'request')}")
+    # 1. Explorer ctx
+    logging.info(f"1. ctx type: {type(ctx)}")
+    logging.info(f"   ctx dir: {[x for x in dir(ctx) if not x.startswith('_')]}")
+    
+    # 2. Explorer request_context
+    if hasattr(ctx, 'request_context'):
+        logging.info(f"2. request_context exists: {ctx.request_context}")
+        logging.info(f"   request_context type: {type(ctx.request_context)}")
+        if ctx.request_context is not None:
+            logging.info(f"   request_context dir: {[x for x in dir(ctx.request_context) if not x.startswith('_')]}")
             
+            # 3. Explorer request
             if hasattr(ctx.request_context, 'request'):
-                headers = ctx.request_context.request.headers
-                logging.info(f"Headers type: {type(headers)}")
-                logging.info(f"Headers content: {headers}")
-                
-                auth_header = headers.get("authorization")
-                logging.info(f"Auth header type: {type(auth_header)}")
-                logging.info(f"Auth header value: {auth_header}")
-                
-                if isinstance(auth_header, set):
-                    user_token = next(iter(auth_header), None)
-                    logging.info(f"Extracted from set: {user_token[:30] if user_token else 'None'}...")
-                else:
-                    user_token = auth_header
-                    logging.info(f"Direct string: {user_token[:30] if user_token else 'None'}...")
-                
-                if not user_token:
-                    raise ValueError("Token is None after extraction")
-                    
-        else:
-            raise ValueError("No request_context in ctx")
-            
-    except Exception as e:
-        logging.error(f"Error retrieving authorization header: {e}", exc_info=True)
-        user_token = TOKEN  # STRING
-        logging.info(f"Using fallback TOKEN: {TOKEN[:30]}...")
+                logging.info(f"3. request: {ctx.request_context.request}")
+                logging.info(f"   request type: {type(ctx.request_context.request)}")
+                if ctx.request_context.request is not None:
+                    logging.info(f"   request dir: {[x for x in dir(ctx.request_context.request) if not x.startswith('_')]}")
     
-    logging.info(f"Final user_token: {user_token[:30]}...")
-    logging.info("=" * 50)
+    # 4. Explorer session
+    if hasattr(ctx, 'session'):
+        logging.info(f"4. session: {ctx.session}")
+        logging.info(f"   session type: {type(ctx.session)}")
+        if ctx.session is not None:
+            logging.info(f"   session dir: {[x for x in dir(ctx.session) if not x.startswith('_')]}")
+    
+    logging.info("=" * 80)
+    
+    # POUR L'INSTANT : utiliser le TOKEN par défaut
+    user_token = TOKEN
+    logging.info(f"Using default TOKEN: {TOKEN[:30]}...")
     try:
         user_file = download_file(file_id=file_id,token=user_token) 
 
@@ -1910,7 +1906,7 @@ async def edit_document(
         user_token=bearer_token
     except:
         logging.error(f"Error retrieving authorization header")
-        user_token={TOKEN}
+        user_token=TOKEN
     try:
         user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
