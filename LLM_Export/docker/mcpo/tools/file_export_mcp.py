@@ -1264,7 +1264,7 @@ def upload_file(file_path: str, filename: str, file_type: str, token: str) -> di
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': token,
+        'Authorization': f'Bearer {token}',
         'Accept': 'application/json'
     }
     
@@ -1285,7 +1285,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': token,
+        'Authorization': f'Bearer {token}',
         'Accept': 'application/json'
     }
     
