@@ -63,7 +63,11 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
             type=ref,event=tag
+            type=raw,value=alpha-latest,enable=${{github.ref == 'refs/heads/alpha'}}
+            type=raw,value=beta-latest,enable=${{github.ref == 'refs/heads/beta'}}
             type=raw,value=dev-latest,enable=${{github.ref == 'refs/heads/dev'}}
+            type=raw,value=rc-latest,enable=${{github.ref == 'refs/heads/release-candidate'}}
+
 
       - name: Build & Push (${{ matrix.name }})
         uses: docker/build-push-action@v6
