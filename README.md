@@ -60,6 +60,8 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `JWT_TOKEN`: Token to access your OWUI instance (no default value, not mandatory)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -97,6 +99,8 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `JWT_TOKEN`: Token to access your OWUI instance (no default value, not mandatory)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -151,9 +155,11 @@ services:
       - LOCAL_SD_CFG_SCALE=1.5
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
+      - OWUI_URL=http://localhost:8000
+      - OWUI_JWT_TOKEN=jwt-token-h
     ports:
-      - "8000:8000"
-      - "9004:9004" # Optional, only if you want to use the SSE HTTP server
+      - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
+      - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
     restart: unless-stopped
     volumes:
       - /your/export-data:/output
@@ -264,6 +270,10 @@ MCPO-File-Generation-Tool/
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `OWUI_JWT_TOKEN`: JWT token to use to connect to your OWUI instance (no default value, not mandatory)
+
+
    
 3. Install dependencies:
    ```bash
@@ -313,7 +323,9 @@ This is an example of a minimal `config.json` for MCPO to enable file export but
                 "LOCAL_SD_HEIGHT": "512", <==== HERE set to the height of the image to generate (if any)>
                 "LOCAL_SD_CFG_SCALE": "1.5", <==== HERE set to the CFG scale to use (if any)>
                 "LOCAL_SD_SCHEDULER": "Karras", <==== HERE set to the scheduler to use (if any)>
-                "LOCAL_SD_SAMPLE": "Euler a" <==== HERE set to the sampler to use (if any)>
+                "LOCAL_SD_SAMPLE": "Euler a", <==== HERE set to the sampler to use (if any)>
+                "OWUI_URL": "http://localhost:3000", <== HERE set to the OWUI URL>
+                "JWT_TOKEN": "topsecret" <== HERE set to the JWT token to use to connect to your OWUI instance>
 			},
 			"disabled": false,
 			"autoApprove": []
@@ -359,6 +371,32 @@ Thank you to everyone for your passion, expertise, and dedication to the open-so
 
 ## Using development versions of libraries is at your own risk. Always test in a safe environment first.
 
+## 🛠️ Development Workflow
+
+We follow a structured, Git-based release pipeline to ensure stability, transparency, and smooth deployments.
+
+### 🌿 Branching Strategy
+
+| Branch              | Purpose                                 | Docker Tag         |
+|---------------------|------------------------------------------|--------------------|
+| `dev`               | Active development                        | `dev-latest`       |
+| `alpha`             | Post-approval testing (basic validation)  | `alpha-latest`     |
+| `beta`              | Optimization & in-depth testing           | `beta-latest`      |
+| `release-candidate` | Final validation before production        | `rc-latest`        |
+| `main`              | Stable, production-ready code             | `latest`           |
+
+### 🔁 Workflow Flow
+
+1. **Develop** → Work in the `dev` branch  
+2. **Review & Approve** → Pull request to `alpha`  
+3. **Test** → Validate in `alpha` → Merge to `beta`  
+4. **Optimize** → Refine in `beta` → Merge to `release-candidate`  
+5. **Deploy** → Final verification → Merge to `main`  
+
+✅ Each branch has its own dedicated Docker image tag  
+✅ Ensures clean, traceable, and safe releases  
+✅ Ideal for contributors, testers, and CI/CD automation
+
 
 ## For SSE - http streamable file export server !!New!!
 
@@ -387,6 +425,8 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `JWT_TOKEN`: JWT token to use for authentication (no default value, not mandatory)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -424,6 +464,8 @@ docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `JWT_TOKEN`: JWT token to use for authentication (no default value, not mandatory)   
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -480,8 +522,8 @@ services:
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
     ports:
-      - "8000:8000"
-      - "9004:9004" # Optional, only if you want to use the SSE HTTP server
+      - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
+      - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
     restart: unless-stopped
     volumes:
       - /your/export-data:/output
