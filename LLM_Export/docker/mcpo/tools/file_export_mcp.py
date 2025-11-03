@@ -1284,6 +1284,10 @@ def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
+    if not isinstance(token, str):
+        logging.error(f"Token is not a string! Type: {type(token)}, Value: {token}")
+        raise TypeError(f"Token must be a string, got {type(token)}")    
+    
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
         'Authorization': token,
@@ -1423,13 +1427,45 @@ async def full_context_document(
     Returns:
         dict: A JSON object with the structure of the document.
     """
+    logging.info("=" * 50)
+    logging.info("DÉBUT full_context_document")
+    
     try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        logging.info(f"Recieved authorization header!")
-        user_token=bearer_token
-    except:
-        user_token=TOKEN
-        logging.error(f"Error retrieving authorization header, using fallback: {user_token}")
+        logging.info(f"Context type: {type(ctx)}")
+        logging.info(f"Has request_context: {hasattr(ctx, 'request_context')}")
+        
+        if hasattr(ctx, 'request_context'):
+            logging.info(f"Has request: {hasattr(ctx.request_context, 'request')}")
+            
+            if hasattr(ctx.request_context, 'request'):
+                headers = ctx.request_context.request.headers
+                logging.info(f"Headers type: {type(headers)}")
+                logging.info(f"Headers content: {headers}")
+                
+                auth_header = headers.get("authorization")
+                logging.info(f"Auth header type: {type(auth_header)}")
+                logging.info(f"Auth header value: {auth_header}")
+                
+                if isinstance(auth_header, set):
+                    user_token = next(iter(auth_header), None)
+                    logging.info(f"Extracted from set: {user_token[:30] if user_token else 'None'}...")
+                else:
+                    user_token = auth_header
+                    logging.info(f"Direct string: {user_token[:30] if user_token else 'None'}...")
+                
+                if not user_token:
+                    raise ValueError("Token is None after extraction")
+                    
+        else:
+            raise ValueError("No request_context in ctx")
+            
+    except Exception as e:
+        logging.error(f"Error retrieving authorization header: {e}", exc_info=True)
+        user_token = TOKEN  # STRING
+        logging.info(f"Using fallback TOKEN: {TOKEN[:30]}...")
+    
+    logging.info(f"Final user_token: {user_token[:30]}...")
+    logging.info("=" * 50)
     try:
         user_file = download_file(file_id=file_id,token=user_token) 
 
