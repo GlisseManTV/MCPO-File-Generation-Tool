@@ -30,7 +30,8 @@ from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from pptx import Presentation
@@ -56,7 +57,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.9.0-dev"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1267,13 +1268,21 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, ctx: Context[ServerSession, None]) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
+    try:
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token={TOKEN}
+
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': f'Bearer {user_token}',
         'Accept': 'application/json'
     }
     
@@ -1288,13 +1297,21 @@ def upload_file(file_path: str, filename: str, file_type: str) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str) -> BytesIO:
+def download_file(file_id: str, ctx: Context[ServerSession, None]) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
+    try:
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token={TOKEN}
+
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': f'Bearer {user_token}',
         'Accept': 'application/json'
     }
     
@@ -1422,7 +1439,8 @@ def _apply_run_formatting(run, format_dict):
 
 def full_context_document(
     file_id: str,
-    file_name: str
+    file_name: str,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1815,7 +1833,8 @@ def _collect_needs(edit_items):  # ADD
 def edit_document(
     file_id: str,
     file_name: str,
-    edits: dict
+    edits: dict,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -2364,7 +2383,8 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
 def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    review_comments: list[tuple[int | str, str]],
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Generic document review function that works with different document types.

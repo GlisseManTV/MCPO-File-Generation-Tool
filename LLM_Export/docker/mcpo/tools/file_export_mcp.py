@@ -30,7 +30,8 @@ from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from pptx import Presentation
@@ -46,7 +47,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.9.0-dev"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1257,13 +1258,13 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
@@ -1278,13 +1279,13 @@ def upload_file(file_path: str, filename: str, file_type: str) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
@@ -1412,7 +1413,8 @@ def _apply_run_formatting(run, format_dict):
 
 def full_context_document(
     file_id: str,
-    file_name: str
+    file_name: str,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1421,7 +1423,14 @@ def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        user_token=bearer_token
+        logging.info(f"Recieved authorization header! : {user_token}")        
+    except:
+        user_token={TOKEN}    
+        logging.error(f"Error retrieving authorization header use admin fallback : {user_token}")
+    try:
+        user_file = download_file(file_id,token=user_token)
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
@@ -1806,7 +1815,8 @@ def _collect_needs(edit_items):
 def edit_document(
     file_id: str,
     file_name: str,
-    edits: dict
+    edits: dict,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -1857,9 +1867,15 @@ def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token={TOKEN}
+    try:
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -1999,7 +2015,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX editing: {e}")
@@ -2033,7 +2050,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during XLSX editing: {e}")
@@ -2164,7 +2182,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during PPTX editing: {e}")
@@ -2183,6 +2202,7 @@ def edit_document(
             indent=4,
             ensure_ascii=False
         )
+    
 def _get_pptx_namespaces():
     """Returns XML namespaces for PowerPoint"""
     return {
@@ -2349,12 +2369,13 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
-    description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments. For Excel files, use cell references (e.g. 'A1', 'B3', 'C10') as indexes. For Word and PowerPoint files, use the id_key format (e.g. 'pid:123' for paragraphs, 'sid:456' for slides) as indexes."
+    description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
 def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    review_comments: list[tuple[int | str, str]],
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -2376,9 +2397,15 @@ def review_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token={TOKEN}    
+    try:
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2449,7 +2476,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
@@ -2482,7 +2510,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error: {e}")
@@ -2575,7 +2604,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
