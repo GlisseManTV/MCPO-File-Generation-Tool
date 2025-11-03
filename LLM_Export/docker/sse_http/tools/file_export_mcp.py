@@ -1268,21 +1268,13 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str, ctx: Context[ServerSession, None]) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
-    try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        logging.info(f"Recieved authorization header!")
-        user_token=bearer_token
-    except:
-        logging.error(f"Error retrieving authorization header")
-        user_token={TOKEN}
-
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {user_token}',
+        'Authorization': f'Bearer {token}',
         'Accept': 'application/json'
     }
     
@@ -1297,25 +1289,17 @@ def upload_file(file_path: str, filename: str, file_type: str, ctx: Context[Serv
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str, ctx: Context[ServerSession, None]) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
-    try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        logging.info(f"Recieved authorization header!")
-        user_token=bearer_token
-    except:
-        logging.error(f"Error retrieving authorization header")
-        user_token={TOKEN}
-
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {user_token}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
@@ -1449,7 +1433,14 @@ def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        user_token=bearer_token
+        logging.info(f"Recieved authorization header! : {user_token}")        
+    except:
+        user_token={TOKEN}    
+        logging.error(f"Error retrieving authorization header use admin fallback : {user_token}")
+    try:
+        user_file = download_file(file_id=file_id,token=user_token)
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)

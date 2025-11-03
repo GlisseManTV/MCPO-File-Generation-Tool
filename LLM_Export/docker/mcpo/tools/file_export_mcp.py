@@ -15,6 +15,7 @@ import zipfile
 import py7zr
 import logging
 import requests
+from requests import get, post
 from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
@@ -1285,11 +1286,11 @@ def download_file(file_id: str, token: str) -> BytesIO:
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
@@ -1430,7 +1431,7 @@ def full_context_document(
         user_token={TOKEN}    
         logging.error(f"Error retrieving authorization header use admin fallback : {user_token}")
     try:
-        user_file = download_file(file_id,token=user_token)
+        user_file = download_file(file_id=file_id,token=user_token)
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
