@@ -1424,12 +1424,15 @@ def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        user_token=bearer_token
-        logging.info(f"Recieved authorization header! : {user_token}")        
-    except:
-        user_token={TOKEN}    
-        logging.error(f"Error retrieving authorization header use admin fallback : {user_token}")
+        auth_header = ctx.request_context.request.headers.get("authorization")
+        if isinstance(auth_header, set):
+            logging.info(f"set header found: {auth_header}")
+            auth_header = next(iter(auth_header), None)
+        user_token = auth_header
+        logging.info(f"Received authorization header: {user_token}")
+    except Exception as e:
+        user_token = {TOKEN}
+        logging.error(f"Error retrieving authorization header, using fallback: {e}")
     try:
         user_file = download_file(file_id=file_id,token=user_token)
 
