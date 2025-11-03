@@ -1437,7 +1437,7 @@ def full_context_document(
         user_token=bearer_token
         logging.info(f"Recieved authorization header! : {user_token}")        
     except:
-        user_token={TOKEN}    
+        user_token=TOKEN
         logging.error(f"Error retrieving authorization header use admin fallback : {user_token}")
     try:
         user_file = download_file(file_id=file_id,token=user_token)
@@ -1821,7 +1821,7 @@ def _collect_needs(edit_items):  # ADD
     return needs
 
 @mcp.tool()
-def edit_document(
+async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
@@ -1878,7 +1878,7 @@ def edit_document(
     os.makedirs(temp_folder, exist_ok=True)
 
     try:
-        user_file = download_file(file_id)
+        user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2018,7 +2018,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX editing: {e}")
@@ -2052,7 +2053,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during XLSX editing: {e}")
@@ -2183,7 +2185,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during PPTX editing: {e}")
@@ -2371,7 +2374,7 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
     title="Review and comment on various document types",
     description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
-def review_document(
+async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
@@ -2399,7 +2402,7 @@ def review_document(
     os.makedirs(temp_folder, exist_ok=True)
 
     try:
-        user_file = download_file(file_id)
+        user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2470,7 +2473,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
@@ -2503,7 +2507,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error: {e}")
@@ -2596,7 +2601,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
@@ -2617,7 +2623,7 @@ def review_document(
         )
 
 @mcp.tool()
-def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
 "{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
 "{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
@@ -2651,7 +2657,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     return {"url": result["url"]}
 
 @mcp.tool()
-def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
     log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()
