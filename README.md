@@ -1,13 +1,23 @@
 # MCP-File-Generation-Tool – Export Files Directly from Open WebUI
 
-A lightweight, MCPO-integrated tool that lets you **generate and export real files** (PDF, Excel, PowerPoint, ZIP, etc.) directly from Open WebUI — just like ChatGPT or Claude.
+A lightweight, MCPO-integrated tool that lets you **generate, edit and review real files** (PDF, Excel, PowerPoint, Word, ZIP, etc.) directly from Open WebUI — just like ChatGPT or Claude.
 
-✅ Supports both **Python** and **Docker**  
-✅ Fully configurable  
-✅ Ready for production workflows  
+✅ Supports both **Docker** and **Python**
+✅ Fully configurable
+✅ Ready for production workflows
 ✅ Open source & MIT licensed
 
----
+<!-- Table of Contents -->
+## Table of Contents
+- [Quick Start](#quick-start)
+- [For Docker User (Recommended)](#for-docker-user-recommended)
+- [For Python Users](#for-python-users)
+- [Why This Matters](#why-this-matters)
+- [License](#license)
+- [Need help?](#need-help)
+- [Credits](#credits)
+- [Quick Start for Development Versions](#quick-start-for-development-versions)
+
 
 🚀 **Create and export files easily from Open WebUI!**
 
@@ -25,9 +35,10 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 
 # 🚀 Quick Start
 
-## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Best_Practices.md)
-## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Prompt_Examples.md)
-## How to use the tool here: [HowTo.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/HowTo.md)
+## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
+## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
+## How to use the tool here: [HowToUse.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
+## How configure the tool here : [HowToConfigure.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
 
 ---
 
