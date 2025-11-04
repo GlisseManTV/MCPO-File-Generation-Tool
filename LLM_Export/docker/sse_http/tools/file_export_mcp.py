@@ -2727,7 +2727,13 @@ async def generate_and_archive(files_data: list[dict], archive_format: str = "zi
 
 from sse_starlette.sse import EventSourceResponse
 
-from sse_starlette.sse import EventSourceResponse
+class SimpleRequestContext:
+    def __init__(self, request):
+        self.request = request
+
+class SimpleCtx:
+    def __init__(self, request):
+        self.request_context = SimpleRequestContext(request)
 
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
@@ -3023,60 +3029,53 @@ async def handle_sse(request: Request) -> Response:
             elif method == "tools/call":
                 params = message.get("params", {})
                 tool_name = params.get("name")
-                arguments = params.get("arguments", {})
-                
+                arguments = params.get("arguments", {}) or {}
+                ctx = SimpleCtx(request)
+
                 try:
-                    result = None
                     if tool_name == "create_file":
-                        result = create_file(**arguments)
+                        result = await create_file(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"File created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"File created successfully: {result.get('url')}"}
                             ]
                         }
+
                     elif tool_name == "generate_and_archive":
-                        result = generate_and_archive(**arguments)
+                        result = await generate_and_archive(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Archive created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"Archive created successfully: {result.get('url')}"}
                             ]
                         }
+
                     elif tool_name == "full_context_document":
-                        result = full_context_document(**arguments)
+                        arguments.setdefault("ctx", ctx)
+                        result = await full_context_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": result
-                                }
+                                {"type": "text", "text": result}
                             ]
                         }
+
                     elif tool_name == "edit_document":
-                        result = edit_document(**arguments)
+                        arguments.setdefault("ctx", ctx)
+                        result = await edit_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
-                                }
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
                             ]
                         }
+
                     elif tool_name == "review_document":
-                        result = review_document(**arguments)
+                        arguments.setdefault("ctx", ctx)
+                        result = await review_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
-                                }
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
                             ]
                         }
+
                     else:
                         response["error"] = {
                             "code": -32601,
