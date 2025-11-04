@@ -1441,7 +1441,7 @@ def full_context_document(
         user_token=bearer_token
     except:
         logging.error(f"Error retrieving authorization header use admin fallback")
-        user_token={TOKEN}    
+        user_token=TOKEN
     try:
         user_file = download_file(file_id,token=user_token)
 

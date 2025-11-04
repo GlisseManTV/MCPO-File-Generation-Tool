@@ -1427,41 +1427,13 @@ async def full_context_document(
     Returns:
         dict: A JSON object with the structure of the document.
     """
-    # DIAGNOSTIC COMPLET
-    logging.info("=" * 80)
-    logging.info("DIAGNOSTIC CONTEXTE MCP")
-    logging.info("=" * 80)
-    
-    # 1. Explorer ctx
-    logging.info(f"1. ctx type: {type(ctx)}")
-    logging.info(f"   ctx dir: {[x for x in dir(ctx) if not x.startswith('_')]}")
-    
-    # 2. Explorer request_context
-    if hasattr(ctx, 'request_context'):
-        logging.info(f"2. request_context exists: {ctx.request_context}")
-        logging.info(f"   request_context type: {type(ctx.request_context)}")
-        if ctx.request_context is not None:
-            logging.info(f"   request_context dir: {[x for x in dir(ctx.request_context) if not x.startswith('_')]}")
-            
-            # 3. Explorer request
-            if hasattr(ctx.request_context, 'request'):
-                logging.info(f"3. request: {ctx.request_context.request}")
-                logging.info(f"   request type: {type(ctx.request_context.request)}")
-                if ctx.request_context.request is not None:
-                    logging.info(f"   request dir: {[x for x in dir(ctx.request_context.request) if not x.startswith('_')]}")
-    
-    # 4. Explorer session
-    if hasattr(ctx, 'session'):
-        logging.info(f"4. session: {ctx.session}")
-        logging.info(f"   session type: {type(ctx.session)}")
-        if ctx.session is not None:
-            logging.info(f"   session dir: {[x for x in dir(ctx.session) if not x.startswith('_')]}")
-    
-    logging.info("=" * 80)
-    
-    # POUR L'INSTANT : utiliser le TOKEN par défaut
-    user_token = TOKEN
-    logging.info(f"Using default TOKEN: {TOKEN[:30]}...")
+    try:
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
     try:
         user_file = download_file(file_id=file_id,token=user_token) 
 
