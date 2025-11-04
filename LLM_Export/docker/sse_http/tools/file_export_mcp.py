@@ -3165,7 +3165,7 @@ app = Starlette(
 
 if __name__ == "__main__":
 
-    mode = int(os.getenv("MODE", "SSE"))
+    mode = (os.getenv("MODE", "SSE"))
  
     if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
