@@ -1279,13 +1279,13 @@ def upload_file(file_path: str, filename: str, file_type: str, token: str) -> di
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
