@@ -1265,7 +1265,7 @@ def upload_file(file_path: str, filename: str, file_type: str, token: str) -> di
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     

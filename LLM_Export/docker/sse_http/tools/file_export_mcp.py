@@ -1421,7 +1421,7 @@ def _apply_run_formatting(run, format_dict):
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
 
-def full_context_document(
+async def full_context_document(
     file_id: str,
     file_name: str,
     ctx: Context[ServerSession, None]
@@ -1876,7 +1876,13 @@ async def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
+    try:
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
     try:
         user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
@@ -2401,6 +2407,13 @@ async def review_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
 
+    try:
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
     try:
         user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
