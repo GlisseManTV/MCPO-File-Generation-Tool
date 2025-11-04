@@ -1425,18 +1425,21 @@ async def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        meta = ctx.request_context.meta
+        meta = ctx.meta
+        
+        logging.info(f"Debug - ctx.meta content: {meta}")
+        
         if meta and "headers" in meta:
             auth_header = meta["headers"].get("authorization")
-            if auth_header and auth_header.lower().startswith("bearer "):
-                user_token = auth_header[6:]
+            if auth_header:
+                user_token = auth_header
                 logging.info("Authorization header received and extracted.")
             else:
-                logging.warning("Invalid or missing Authorization header.")
-                user_token = None
+                logging.warning("No Authorization header in meta['headers'].")
+                user_token = TOKEN
         else:
-            logging.warning("No Authorization header in meta.")
-            user_token = None
+            logging.warning("No 'headers' key in meta.")
+            user_token = TOKEN
     except Exception as e:
         logging.error(f"Error retrieving authorization header: {e}")
         user_token = TOKEN
@@ -1879,18 +1882,21 @@ async def edit_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
     try:
-        meta = ctx.request_context.meta
+        meta = ctx.meta
+        
+        logging.info(f"Debug - ctx.meta content: {meta}")
+        
         if meta and "headers" in meta:
             auth_header = meta["headers"].get("authorization")
-            if auth_header and auth_header.lower().startswith("bearer "):
-                user_token = auth_header[6:]
+            if auth_header:
+                user_token = auth_header
                 logging.info("Authorization header received and extracted.")
             else:
-                logging.warning("Invalid or missing Authorization header.")
-                user_token = None
+                logging.warning("No Authorization header in meta['headers'].")
+                user_token = TOKEN
         else:
-            logging.warning("No Authorization header in meta.")
-            user_token = None
+            logging.warning("No 'headers' key in meta.")
+            user_token = TOKEN
     except Exception as e:
         logging.error(f"Error retrieving authorization header: {e}")
         user_token = TOKEN
@@ -2418,21 +2424,24 @@ async def review_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
     try:
-        meta = ctx.request_context.meta
+        meta = ctx.meta
+        
+        logging.info(f"Debug - ctx.meta content: {meta}")
+        
         if meta and "headers" in meta:
             auth_header = meta["headers"].get("authorization")
-            if auth_header and auth_header.lower().startswith("bearer "):
-                user_token = auth_header[6:]
+            if auth_header:
+                user_token = auth_header
                 logging.info("Authorization header received and extracted.")
             else:
-                logging.warning("Invalid or missing Authorization header.")
-                user_token = None
+                logging.warning("No Authorization header in meta['headers'].")
+                user_token = TOKEN
         else:
-            logging.warning("No Authorization header in meta.")
-            user_token = None
+            logging.warning("No 'headers' key in meta.")
+            user_token = TOKEN
     except Exception as e:
         logging.error(f"Error retrieving authorization header: {e}")
-        user_token = TOKEN  # Fallback
+        user_token = TOKEN
     try:
         user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
