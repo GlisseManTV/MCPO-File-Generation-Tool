@@ -310,9 +310,7 @@ log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
 mcp = FastMCP(
-    name = "file_export",
-    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
-    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
+    name = "file_export"
 )
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
@@ -1276,19 +1274,19 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str, token) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
@@ -1297,17 +1295,17 @@ def upload_file(file_path: str, filename: str, file_type: str, token) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str, token) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {token}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
@@ -1429,7 +1427,7 @@ def _apply_run_formatting(run, format_dict):
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
 
-def full_context_document(
+async def full_context_document(
     file_id: str,
     file_name: str,
     ctx: Context[ServerSession, None]
@@ -1830,7 +1828,7 @@ def _collect_needs(edit_items):  # ADD
     return needs
 
 @mcp.tool()
-def edit_document(
+async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
@@ -2389,7 +2387,7 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
     title="Review and comment on various document types",
     description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
-def review_document(
+async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
@@ -2644,7 +2642,7 @@ def review_document(
         )
 
 @mcp.tool()
-def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
 "{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
 "{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
@@ -2678,7 +2676,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     return {"url": result["url"]}
 
 @mcp.tool()
-def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
     log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()
