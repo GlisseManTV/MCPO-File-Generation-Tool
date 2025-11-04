@@ -35,6 +35,10 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 
 ## For SSE - http streamable file export server !!New!!
 
+Endpoints : 
+SSE => /sse
+streamable-http => /mcp
+
 Use 
 ```
 docker pull ghcr.io/glissemantv/owui-file-export-server:latest
@@ -61,7 +65,7 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: Token to access your OWUI instance (no default value, not mandatory)
+   - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -400,6 +404,10 @@ We follow a structured, Git-based release pipeline to ensure stability, transpar
 
 ## For SSE - http streamable file export server !!New!!
 
+Endpoints : 
+SSE => /sse
+streamable-http => /mcp
+
 Use 
 ```
 docker pull ghcr.io/glissemantv/owui-file-export-server:dev-latest
@@ -426,7 +434,7 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: JWT token to use for authentication (no default value, not mandatory)
+   - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
