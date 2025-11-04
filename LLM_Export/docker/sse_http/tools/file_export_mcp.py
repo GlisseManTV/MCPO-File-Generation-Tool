@@ -306,7 +306,11 @@ log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-mcp = FastMCP("file_export")
+mcp = FastMCP(
+    name = "file_export",
+    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
+    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
+)
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
     total_chars = sum(len(line) for line in content_list)
