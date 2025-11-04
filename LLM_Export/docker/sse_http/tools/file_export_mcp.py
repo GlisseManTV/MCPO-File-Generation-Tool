@@ -15,6 +15,7 @@ import zipfile
 import py7zr
 import logging
 import requests
+from requests import get, post
 from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
@@ -3159,17 +3160,18 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    import sys
+
+    mode = int(os.getenv("MODE", "SSE"))
  
-    if "--sse" in sys.argv or "--http" in sys.argv:
+    if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
-        
+            
         log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
         log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
         log.info(f"SSE endpoint: http://{host}:{port}/sse")
         log.info(f"Messages endpoint: http://{host}:{port}/messages")
-        
+            
         uvicorn.run(
             app,
             host=host,
@@ -3178,6 +3180,14 @@ if __name__ == "__main__":
             log_level="info",
             use_colors=False
         )
-    else:
-        log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
-        mcp.run()
+    elif mode == "http":
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+        
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
+        log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
+
+        mcp.run(
+            transport="streamable-http"
+        )
