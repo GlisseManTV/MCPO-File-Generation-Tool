@@ -48,7 +48,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.9.0-dev"
+SCRIPT_VERSION = "0.9.0-alpha"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1271,7 +1271,7 @@ def upload_file(file_path: str, filename: str, file_type: str, token: str) -> di
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
@@ -1284,10 +1284,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
-    if not isinstance(token, str):
-        logging.error(f"Token is not a string! Type: {type(token)}, Value: {token}")
-        raise TypeError(f"Token must be a string, got {type(token)}")    
-    
+   
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
         'Authorization': token,
@@ -2408,7 +2405,7 @@ async def review_document(
         user_token=bearer_token
     except:
         logging.error(f"Error retrieving authorization header")
-        user_token={TOKEN}    
+        user_token=TOKEN  
     try:
         user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:

@@ -58,7 +58,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.9.0-dev"
+SCRIPT_VERSION = "0.9.0-alpha"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1440,10 +1440,10 @@ async def full_context_document(
     try:
         bearer_token = ctx.request_context.request.headers.get("authorization")
         user_token=bearer_token
-        logging.info(f"Recieved authorization header! : {user_token}")        
+        logging.info(f"Recieved authorization header!")        
     except:
         user_token=TOKEN
-        logging.error(f"Error retrieving authorization header use admin fallback : {user_token}")
+        logging.error(f"Error retrieving authorization header use admin fallback")
     try:
         user_file = download_file(file_id=file_id,token=user_token)
 
@@ -1790,7 +1790,7 @@ def ensure_slot_textbox(slide, slot):
         return slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
     return slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1.5))
 
-def _layout_has(layout, want_title=False, want_body=False):  # ADD
+def _layout_has(layout, want_title=False, want_body=False):
     has_title = has_body = False
     for ph in getattr(layout, "placeholders", []):
         pf = getattr(ph, "placeholder_format", None)
@@ -1805,7 +1805,7 @@ def _layout_has(layout, want_title=False, want_body=False):  # ADD
             has_body = True
     return (not want_title or has_title) and (not want_body or has_body)
 
-def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
+def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):
     if anchor_slide and _layout_has(anchor_slide.slide_layout, needs_title, needs_body):
         return anchor_slide.slide_layout
     for layout in prs.slide_layouts:
@@ -1813,7 +1813,7 @@ def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
             return layout
     return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
 
-def _collect_needs(edit_items):  # ADD
+def _collect_needs(edit_items):
     needs = {}
     for tgt, _ in edit_items:
         if not isinstance(tgt, str):
@@ -3189,7 +3189,7 @@ if __name__ == "__main__":
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
         
         log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
-        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
+        log.info(f"Starting file_export_mcp in http mode on http://{host}:{port}")
         log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
 
         mcp.run(
