@@ -1454,23 +1454,12 @@ async def full_context_document(
     Returns:
         dict: A JSON object with the structure of the document.
     """
-    try:
-        logging.info(f"Debug - meta content: {meta}")
-        
-        if meta and "headers" in meta:
-            auth_header = meta["headers"].get("authorization")
-            if auth_header:
-                user_token = auth_header
-                logging.info("Authorization header received from meta parameter")
-            else:
-                logging.warning("No authorization in meta headers")
-                user_token = TOKEN
-        else:
-            logging.warning("No meta or headers in meta, using TOKEN fallback")
-            user_token = TOKEN
-    except Exception as e:
-        logging.error(f"Error retrieving authorization header: {e}")
-        user_token = TOKEN
+    user_token = TOKEN
+    if __mcpo_forwarded_headers__ and "authorization" in __mcpo_forwarded_headers__:
+        user_token = __mcpo_forwarded_headers__["authorization"]
+        logging.info("✅ Authorization received from MCPO forwarded headers!")
+    else:
+        logging.info("⚠️ No forwarded headers, using admin TOKEN")
     try:
         user_file = download_file(file_id=file_id,token=user_token) 
 
