@@ -1430,11 +1430,11 @@ async def full_context_document(
         auth_header = mcpo_headers.get("authorization")
         if auth_header:
             user_token = auth_header
-            logging.info("✅ Using authorization from MCPO forwarded headers")
+            logging.info("Using authorization from MCPO forwarded headers")
         else:
-            logging.warning("⚠️ Forwarded headers present but no authorization found")
+            logging.warning("Forwarded headers present but no authorization found")
     else:
-        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
+        logging.info("ℹNo forwarded headers, using admin TOKEN fallback")
     try:
         user_file = download_file(file_id=file_id,token=user_token) 
 
