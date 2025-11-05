@@ -3123,25 +3123,30 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    import sys
- 
-    if "--sse" in sys.argv or "--http" in sys.argv:
-        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
-        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
-        
-        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
-        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
-        log.info(f"SSE endpoint: http://{host}:{port}/sse")
-        log.info(f"Messages endpoint: http://{host}:{port}/messages")
-        
-        uvicorn.run(
-            app,
+    mode = os.getenv("MODE", "SSE").lower()
+    port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+    host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+
+    log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+    log.info(f"Running mode: {mode.upper()}")
+
+    if mode == "sse":
+        from mcp.server.sse import SseServerTransport
+
+        log.info(f"Starting in SSE mode on http://{host}:{port}")
+        log.info(f"SSE endpoint available at: http://{host}:{port}/sse")
+
+        mcp.add_transport(SseServerTransport("/sse"))
+
+        mcp.run(host=host, port=port)
+
+    elif mode == "http":
+        log.info(f"Starting in HTTP mode on http://{host}:{port}/mcp")
+        mcp.run(
+            transport="streamable-http",
             host=host,
-            port=port,
-            access_log=False,
-            log_level="info",
-            use_colors=False
+            port=port
         )
+
     else:
-        log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
-        mcp.run()
+        log.error(f"Unknown MODE value: {mode}. Expected 'SSE' or 'HTTP'.")
