@@ -1581,6 +1581,37 @@ async def full_context_document(
                         })
                         continue
 
+                    # --- NEW: table extraction ---
+                    if getattr(shape, "has_table", False):
+                        tbl = shape.table
+                        rows = []
+                        for r in tbl.rows:
+                            row_cells = []
+                            for c in r.cells:
+                                # collect full text
+                                if hasattr(c, "text_frame") and c.text_frame:
+                                    paras = []
+                                    for p in c.text_frame.paragraphs:
+                                        t = "".join(run.text for run in p.runs) if p.runs else p.text
+                                        t = (t or "").strip()
+                                        if t:
+                                            paras.append(t)
+                                    cell_text = "\n".join(paras)
+                                else:
+                                    cell_text = (getattr(c, "text", "") or "").strip()
+                                row_cells.append(cell_text)
+                            rows.append(row_cells)
+
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key,
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": "table",
+                            "rows": rows  # list of lists: each inner list = one row's cell texts
+                        })
+                        continue
 
                 structure["body"].append(slide_obj)
 
@@ -1817,6 +1848,111 @@ def _collect_needs(edit_items):
             needs[ref][slot] = True
     return needs
 
+def _body_placeholder_bounds(slide):
+    """Return (left, top, width, height) for the body/content area if possible, else None."""
+    try:
+        for shp in slide.shapes:
+            phf = getattr(shp, "placeholder_format", None)
+            if phf is not None:
+                # BODY placeholder is the content region on most layouts
+                if str(getattr(phf, "type", "")).endswith("BODY"):
+                    return shp.left, shp.top, shp.width, shp.height
+    except Exception:
+        pass
+    return None
+
+def _add_table_from_matrix(slide, matrix):
+    """
+    Create a table on the slide sized to the matrix (rows x cols) and fill it.
+    The table is placed over the body placeholder bounds if available,
+    else within 1-inch margins.
+    Returns the created table shape.
+    """
+    if not isinstance(matrix, (list, tuple)) or not matrix or not isinstance(matrix[0], (list, tuple)):
+        return None
+
+    rows = len(matrix)
+    cols = len(matrix[0])
+
+    # determine placement rectangle
+    rect = _body_placeholder_bounds(slide)
+    if rect:
+        left, top, width, height = rect
+    else:
+        # safe default margins
+        left = Inches(1)
+        top = Inches(1.2)
+        # try to use slide size when available
+        try:
+            prs = slide.part.presentation
+            width = prs.slide_width - Inches(2)
+            height = prs.slide_height - Inches(2.2)
+        except Exception:
+            width = Inches(8)
+            height = Inches(4.5)
+
+    tbl_shape = slide.shapes.add_table(rows, cols, left, top, width, height)
+    table = tbl_shape.table
+
+    # fill cells
+    for r in range(rows):
+        for c in range(cols):
+            try:
+                table.cell(r, c).text = "" if matrix[r][c] is None else str(matrix[r][c])
+            except Exception:
+                pass
+
+    return tbl_shape
+
+
+def _resolve_donor_simple(order, slides_by_id, anchor_id, kind):
+    """
+    kind: 'insert_after' or 'insert_before'
+    Rules:
+      insert_after(anchor):
+        - if anchor is first -> donor = next slide if exists else anchor
+        - else               -> donor = anchor
+      insert_before(anchor):
+        - if anchor is last  -> donor = previous slide if exists else anchor
+        - else               -> donor = anchor
+    """
+    if not order:
+        return None
+    if anchor_id not in order:
+        # anchor not found
+        return slides_by_id.get(order[1]) if len(order) > 1 else slides_by_id.get(order[0])
+
+    pos = order.index(anchor_id)
+    last_idx = len(order) - 1
+
+    if kind == "insert_after":
+        if pos == 0:
+            # after first slide
+            return slides_by_id.get(order[pos + 1]) if pos + 1 <= last_idx else slides_by_id.get(anchor_id)
+        else:
+            return slides_by_id.get(anchor_id)
+
+    # insert_before
+    if pos == last_idx:
+        # before last slide
+        return slides_by_id.get(order[pos - 1]) if pos - 1 >= 0 else slides_by_id.get(anchor_id)
+    else:
+        return slides_by_id.get(anchor_id)
+
+def _set_table_from_matrix(shape, data):
+    # data = list[list[Any]]; trims to current table size
+    tbl = shape.table
+    max_r = len(tbl.rows)
+    max_c = len(tbl.columns)
+    for r, row_vals in enumerate(data):
+        if r >= max_r:
+            break
+        for c, val in enumerate(row_vals):
+            if c >= max_c:
+                break
+            tbl.cell(r, c).text = ""  # clear
+            tbl.cell(r, c).text = "" if val is None else str(val)
+
 @mcp.tool()
 async def edit_document(
     file_id: str,
@@ -1840,12 +1976,19 @@ async def edit_document(
     ### PPTX (PowerPoint)
     - ops: 
         - ["insert_after", slide_id, "nK"]
+        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["insert_before", slide_id, "nK"]
+        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:
-        - ["sid:<slide_id>/shid:<shape_id>", text_or_list]
-        - ["nK:slot:title", text_or_list]
-        - ["nK:slot:body", text_or_list]
+        - Edit a text shape
+            ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+        - Edit a table
+            ["sid:<slide_id>/shid:<shape_id>", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
+        - Edit title or body or table of a newly inserted slide
+            ["nK:slot:title", text_or_list]
+            ["nK:slot:body", text_or_list]
+            ["nK:slot:table", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
 
     ### DOCX (Word)
     - ops:
@@ -2089,11 +2232,19 @@ async def edit_document(
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            style_donor = slides_by_id.get(order[-1])
+                            like_sid = None
+                            if len(op) >= 4 and isinstance(op[3], dict):
+                                like_sid = op[3].get("layout_like_sid")
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
-                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            # style_donor selection
+                            if like_sid and like_sid in slides_by_id:
+                                style_donor = slides_by_id[like_sid]
+                            else:
+                                style_donor = _resolve_donor_simple(order, slides_by_id, anchor_id, kind)
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"]) if style_donor else prs.slide_layouts[0]
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
+
                             sldIdLst = prs.slides._sldIdLst
                             new_sldId = sldIdLst[-1]
                             try:
@@ -2106,13 +2257,24 @@ async def edit_document(
                             slides_by_id[new_sid] = new_slide
                             new_refs[new_ref] = new_sid
 
+
                     elif kind == "insert_before" and len(op) >= 3:
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            style_donor = slides_by_id.get(order[-1])
+                            like_sid = None
+                            if len(op) >= 4 and isinstance(op[3], dict):
+                                like_sid = op[3].get("layout_like_sid")
+
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
-                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+
+                            # style_donor selection
+                            if like_sid and like_sid in slides_by_id:
+                                style_donor = slides_by_id[like_sid]
+                            else:
+                                style_donor = _resolve_donor_simple(order, slides_by_id, anchor_id, kind)
+
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"]) if style_donor else prs.slide_layouts[0]
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
 
@@ -2144,6 +2306,22 @@ async def edit_document(
                     if not isinstance(target, str):
                         continue
                     t = target.strip()
+
+                    # >>> ADD: table edit 
+                    # target format: sid:<sid>/shid:<shid>  with new_text like [[row1...],[row2...],...]
+                    m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
+                    if m:
+                        slide_id = int(m.group(1))
+                        shape_id = int(m.group(2))
+                        slide = slides_by_id.get(slide_id)
+                        if slide:
+                            shape = shape_by_id(slide, shape_id)
+                            if shape and getattr(shape, "has_table", False) and isinstance(new_text, (list, tuple)) and new_text and isinstance(new_text[0], (list, tuple)):
+                                _set_table_from_matrix(shape, new_text)
+                                continue
+                            
+                    # <<< END ADD
+
                     m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
                     if m:
                         slide_id = int(m.group(1))
@@ -2182,6 +2360,21 @@ async def edit_document(
                                     pass
                         else:
                             tf.text = str(new_text)
+                        continue
+
+                    # nK:table  (create a new table on a newly inserted slide nK)
+                    m = re.match(r"^(n\d+):slot:table$", t, flags=re.I)
+                    if m:
+                        ref = m.group(1)
+                        sid = new_refs.get(ref)
+                        if not sid:
+                            continue
+                        slide = slides_by_id.get(sid)
+                        if not slide:
+                            continue
+                        # new_text must be a 2D list
+                        if isinstance(new_text, (list, tuple)) and new_text and isinstance(new_text[0], (list, tuple)):
+                            _add_table_from_matrix(slide, new_text)
                         continue
  
 
