@@ -15,6 +15,7 @@ import zipfile
 import py7zr
 import logging
 import requests
+from requests import get, post
 from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
@@ -30,7 +31,8 @@ from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from pptx import Presentation
@@ -56,7 +58,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.9.0-alpha"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -304,7 +306,11 @@ log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-mcp = FastMCP("file_export")
+mcp = FastMCP(
+    name = "file_export",
+    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
+    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
+)
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
     total_chars = sum(len(line) for line in content_list)
@@ -1267,19 +1273,19 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
@@ -1288,17 +1294,17 @@ def upload_file(file_path: str, filename: str, file_type: str) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
@@ -1420,9 +1426,10 @@ def _apply_run_formatting(run, format_dict):
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
 
-def full_context_document(
+async def full_context_document(
     file_id: str,
-    file_name: str
+    file_name: str,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1431,7 +1438,14 @@ def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        user_token=bearer_token
+        logging.info(f"Recieved authorization header!")        
+    except:
+        user_token=TOKEN
+        logging.error(f"Error retrieving authorization header use admin fallback")
+    try:
+        user_file = download_file(file_id=file_id,token=user_token)
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
@@ -1776,7 +1790,7 @@ def ensure_slot_textbox(slide, slot):
         return slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
     return slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1.5))
 
-def _layout_has(layout, want_title=False, want_body=False):  # ADD
+def _layout_has(layout, want_title=False, want_body=False):
     has_title = has_body = False
     for ph in getattr(layout, "placeholders", []):
         pf = getattr(ph, "placeholder_format", None)
@@ -1791,7 +1805,7 @@ def _layout_has(layout, want_title=False, want_body=False):  # ADD
             has_body = True
     return (not want_title or has_title) and (not want_body or has_body)
 
-def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
+def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):
     if anchor_slide and _layout_has(anchor_slide.slide_layout, needs_title, needs_body):
         return anchor_slide.slide_layout
     for layout in prs.slide_layouts:
@@ -1799,7 +1813,7 @@ def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
             return layout
     return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
 
-def _collect_needs(edit_items):  # ADD
+def _collect_needs(edit_items):
     needs = {}
     for tgt, _ in edit_items:
         if not isinstance(tgt, str):
@@ -1812,10 +1826,11 @@ def _collect_needs(edit_items):  # ADD
     return needs
 
 @mcp.tool()
-def edit_document(
+async def edit_document(
     file_id: str,
     file_name: str,
-    edits: dict
+    edits: dict,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -1866,9 +1881,15 @@ def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2008,7 +2029,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX editing: {e}")
@@ -2042,7 +2064,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during XLSX editing: {e}")
@@ -2173,7 +2196,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during PPTX editing: {e}")
@@ -2361,10 +2385,11 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
     title="Review and comment on various document types",
     description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
-def review_document(
+async def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    review_comments: list[tuple[int | str, str]],
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -2388,7 +2413,14 @@ def review_document(
     os.makedirs(temp_folder, exist_ok=True)
 
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2459,7 +2491,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
@@ -2492,7 +2525,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error: {e}")
@@ -2585,7 +2619,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
@@ -2606,7 +2641,7 @@ def review_document(
         )
 
 @mcp.tool()
-def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
 "{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
 "{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
@@ -2640,7 +2675,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     return {"url": result["url"]}
 
 @mcp.tool()
-def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
     log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()
@@ -2697,7 +2732,13 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
 from sse_starlette.sse import EventSourceResponse
 
-from sse_starlette.sse import EventSourceResponse
+class SimpleRequestContext:
+    def __init__(self, request):
+        self.request = request
+
+class SimpleCtx:
+    def __init__(self, request):
+        self.request_context = SimpleRequestContext(request)
 
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
@@ -2993,60 +3034,53 @@ async def handle_sse(request: Request) -> Response:
             elif method == "tools/call":
                 params = message.get("params", {})
                 tool_name = params.get("name")
-                arguments = params.get("arguments", {})
-                
+                arguments = params.get("arguments", {}) or {}
+                ctx = SimpleCtx(request)
+
                 try:
-                    result = None
                     if tool_name == "create_file":
-                        result = create_file(**arguments)
+                        result = await create_file(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"File created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"File created successfully: {result.get('url')}"}
                             ]
                         }
+
                     elif tool_name == "generate_and_archive":
-                        result = generate_and_archive(**arguments)
+                        result = await generate_and_archive(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Archive created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"Archive created successfully: {result.get('url')}"}
                             ]
                         }
+
                     elif tool_name == "full_context_document":
-                        result = full_context_document(**arguments)
+                        arguments.setdefault("ctx", ctx)
+                        result = await full_context_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": result
-                                }
+                                {"type": "text", "text": result}
                             ]
                         }
+
                     elif tool_name == "edit_document":
-                        result = edit_document(**arguments)
+                        arguments.setdefault("ctx", ctx)
+                        result = await edit_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
-                                }
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
                             ]
                         }
+
                     elif tool_name == "review_document":
-                        result = review_document(**arguments)
+                        arguments.setdefault("ctx", ctx)
+                        result = await review_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
-                                }
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
                             ]
                         }
+
                     else:
                         response["error"] = {
                             "code": -32601,
@@ -3130,17 +3164,18 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    import sys
+
+    mode = (os.getenv("MODE", "SSE"))
  
-    if "--sse" in sys.argv or "--http" in sys.argv:
+    if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
-        
+            
         log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
         log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
         log.info(f"SSE endpoint: http://{host}:{port}/sse")
         log.info(f"Messages endpoint: http://{host}:{port}/messages")
-        
+            
         uvicorn.run(
             app,
             host=host,
@@ -3149,6 +3184,14 @@ if __name__ == "__main__":
             log_level="info",
             use_colors=False
         )
-    else:
-        log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
-        mcp.run()
+    elif mode == "http":
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+        
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in http mode on http://{host}:{port}")
+        log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
+
+        mcp.run(
+            transport="streamable-http"
+        )

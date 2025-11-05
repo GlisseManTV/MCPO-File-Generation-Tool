@@ -15,6 +15,7 @@ import zipfile
 import py7zr
 import logging
 import requests
+from requests import get, post
 from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
@@ -30,7 +31,8 @@ from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from pptx import Presentation
@@ -56,7 +58,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount 
 from starlette.responses import Response, JSONResponse 
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.9.0-alpha"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -307,7 +309,9 @@ log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-mcp = FastMCP("file_export")
+mcp = FastMCP(
+    name = "file_export"
+)
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
     total_chars = sum(len(line) for line in content_list)
@@ -1270,19 +1274,19 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
@@ -1291,22 +1295,23 @@ def upload_file(file_path: str, filename: str, file_type: str) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
     else:
         return BytesIO(response._content)
+    
 def _extract_paragraph_style_info(para):
     """Extrait les informations de style détaillées d'un paragraphe"""
     if not para.runs:
@@ -1422,9 +1427,10 @@ def _apply_run_formatting(run, format_dict):
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
 
-def full_context_document(
+async def full_context_document(
     file_id: str,
-    file_name: str
+    file_name: str,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1433,7 +1439,14 @@ def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id,token=user_token)
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
@@ -1815,10 +1828,11 @@ def _collect_needs(edit_items):  # ADD
     return needs
 
 @mcp.tool()
-def edit_document(
+async def edit_document(
     file_id: str,
     file_name: str,
-    edits: dict
+    edits: dict,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -1869,9 +1883,15 @@ def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2011,7 +2031,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX editing: {e}")
@@ -2045,7 +2066,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during XLSX editing: {e}")
@@ -2176,7 +2198,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during PPTX editing: {e}")
@@ -2364,10 +2387,11 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
     title="Review and comment on various document types",
     description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
-def review_document(
+async def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    review_comments: list[tuple[int | str, str]],
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -2389,9 +2413,15 @@ def review_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token=TOKEN    
+    try:
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2462,7 +2492,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
@@ -2495,7 +2526,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error: {e}")
@@ -2588,7 +2620,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
@@ -2609,7 +2642,7 @@ def review_document(
         )
 
 @mcp.tool()
-def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
 "{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
 "{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
@@ -2643,7 +2676,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     return {"url": result["url"]}
 
 @mcp.tool()
-def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
     log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()
@@ -2698,6 +2731,16 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
     return {"url": _public_url(folder_path, archive_filename)}
 
+from sse_starlette.sse import EventSourceResponse
+
+class SimpleRequestContext:
+    def __init__(self, request):
+        self.request = request
+
+class SimpleCtx:
+    def __init__(self, request):
+        self.request_context = SimpleRequestContext(request)
+
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
     
@@ -2705,8 +2748,6 @@ async def handle_sse(request: Request) -> Response:
         try:
             message = await request.json()
             log.debug(f"Received POST message: {message}")
-            
-            from mcp.types import JSONRPCMessage
             
             response = {
                 "jsonrpc": "2.0",
@@ -2724,7 +2765,7 @@ async def handle_sse(request: Request) -> Response:
                     },
                     "serverInfo": {
                         "name": "file_export_mcp",
-                        "version": "1.0.0"
+                        "version": SCRIPT_VERSION
                     }
                 }
             elif method == "tools/list":
@@ -2732,17 +2773,68 @@ async def handle_sse(request: Request) -> Response:
                     "tools": [
                         {
                             "name": "create_file",
-                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, etc.)",
+                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, xml, py, etc.). Supports rich content including titles, paragraphs, lists, tables, images via queries, and more.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "data": {
                                         "type": "object",
-                                        "description": "File data including format, filename, content, etc."
+                                        "description": "File data configuration",
+                                        "properties": {
+                                            "format": {
+                                                "type": "string",
+                                                "enum": ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md"],
+                                                "description": "Output file format"
+                                            },
+                                            "filename": {
+                                                "type": "string",
+                                                "description": "Name of the file to create (optional, will be auto-generated if not provided)"
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "Document title (for docx, pptx, xlsx, pdf)"
+                                            },
+                                            "content": {
+                                                "description": "Content varies by format. For pdf/docx: array of objects with type/text. For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
+                                                "oneOf": [
+                                                    {"type": "array"},
+                                                    {"type": "string"}
+                                                ]
+                                            },
+                                            "slides_data": {
+                                                "type": "array",
+                                                "description": "For pptx format only: array of slide objects",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "title": {"type": "string"},
+                                                        "content": {
+                                                            "type": "array",
+                                                            "items": {"type": "string"}
+                                                        },
+                                                        "image_query": {
+                                                            "type": "string",
+                                                            "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                        },
+                                                        "image_position": {
+                                                            "type": "string",
+                                                            "enum": ["left", "right", "top", "bottom"],
+                                                            "description": "Position of the image on the slide"
+                                                        },
+                                                        "image_size": {
+                                                            "type": "string",
+                                                            "enum": ["small", "medium", "large"],
+                                                            "description": "Size of the image"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "required": ["format"]
                                     },
                                     "persistent": {
                                         "type": "boolean",
-                                        "description": "Whether to keep files permanently"
+                                        "description": "Whether to keep files permanently (default: false, files deleted after delay)"
                                     }
                                 },
                                 "required": ["data"]
@@ -2750,22 +2842,192 @@ async def handle_sse(request: Request) -> Response:
                         },
                         {
                             "name": "generate_and_archive",
-                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
+                            "description": "Generate multiple files at once and create an archive (zip, 7z, or tar.gz). Perfect for creating document packages with multiple formats.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {
+                                    "files_data": {"type": "array", "description": "Array of file data objects"},
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Return the structure, content, and metadata of a document",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"}
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"},
+                                    "review_comments": {
                                         "type": "array",
-                                        "description": "Array of file data objects"
+                                        "description": "Array of file configurations (same structure as create_file data)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "format": {"type": "string"},
+                                                "filename": {"type": "string"},
+                                                "title": {"type": "string"},
+                                                "content": {
+                                                    "oneOf": [
+                                                        {"type": "array"},
+                                                        {"type": "string"}
+                                                    ]
+                                                },
+                                                "slides_data": {"type": "array"}
+                                            },
+                                            "required": ["format"]
+                                        }
                                     },
                                     "archive_format": {
                                         "type": "string",
-                                        "enum": ["zip", "7z", "tar.gz"]
+                                        "enum": ["zip", "7z", "tar.gz"],
+                                        "description": "Archive format (default: zip)"
                                     },
                                     "archive_name": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "Name of the archive file (without extension, timestamp will be added)"
+                                    },
+                                    "persistent": {
+                                        "type": "boolean",
+                                        "description": "Whether to keep the archive permanently"
                                     }
-                                }
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Extract and return the complete structure, content, and metadata of a document (docx, xlsx, pptx). Returns a JSON structure with indexed elements (paragraphs, headings, tables, cells, slides, images) that can be referenced for editing or review.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI file upload"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension (e.g., 'report.docx', 'data.xlsx', 'presentation.pptx')"
+                                    }
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "edit_document",
+                            "description": "Edit an existing document (docx, xlsx, pptx) using structured operations. Supports inserting/deleting elements and updating content. ALWAYS call full_context_document() first to get proper IDs and references. Preserves formatting and returns a download link for the edited file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                    "edits": {
+                                        "type": "object",
+                                        "description": "Edit operations and content changes",
+                                        "properties": {
+                                            "ops": {
+                                                "type": "array",
+                                                "description": "Structural operations (insert/delete). For PPTX: ['insert_after', slide_id, 'nK'], ['insert_before', slide_id, 'nK'], ['delete_slide', slide_id]. For DOCX: ['insert_after', para_xml_id, 'nK'], ['insert_before', para_xml_id, 'nK'], ['delete_paragraph', para_xml_id]. For XLSX: ['insert_row', 'sheet_name', row_idx], ['delete_row', 'sheet_name', row_idx], ['insert_column', 'sheet_name', col_idx], ['delete_column', 'sheet_name', col_idx]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "oneOf": [
+                                                            {"type": "string"},
+                                                            {"type": "integer"}
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "content_edits": {
+                                                "type": "array",
+                                                "description": "Content updates as [target, new_text] pairs. For PPTX: ['sid:<slide_id>/shid:<shape_id>', text], ['nK:slot:title', text], ['nK:slot:body', text]. For DOCX: ['pid:<para_xml_id>', text], ['tid:<table_xml_id>/cid:<cell_xml_id>', text], ['nK', text]. For XLSX: ['A1', value], ['B5', value]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "minItems": 2,
+                                                    "maxItems": 2,
+                                                    "items": [
+                                                        {
+                                                            "type": "string",
+                                                            "description": "Target reference (element ID or cell ref)"
+                                                        },
+                                                        {
+                                                            "description": "New content (text string or array of strings for lists)",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "array", "items": {"type": "string"}},
+                                                                {"type": "number"},
+                                                                {"type": "boolean"}
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "edits"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel files, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word/PowerPoint, use integer indices.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                    "review_comments": {
+                                        "type": "array",
+                                        "description": "Array of [index, comment_text] tuples. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index. For PowerPoint: integer slide index.",
+                                        "items": {
+                                            "type": "array",
+                                            "minItems": 2,
+                                            "maxItems": 2,
+                                            "items": [
+                                                {
+                                                    "description": "Index/reference: For Excel use cell reference (e.g., 'A1'), for Word/PowerPoint use integer",
+                                                    "oneOf": [
+                                                        {"type": "string"},
+                                                        {"type": "integer"}
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "string",
+                                                    "description": "Comment or correction text"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "review_comments"]
                             }
                         }
                     ]
@@ -2773,29 +3035,53 @@ async def handle_sse(request: Request) -> Response:
             elif method == "tools/call":
                 params = message.get("params", {})
                 tool_name = params.get("name")
-                arguments = params.get("arguments", {})
-                
+                arguments = params.get("arguments", {}) or {}
+                ctx = SimpleCtx(request)
+
                 try:
                     if tool_name == "create_file":
-                        result = create_file(**arguments)
+                        result = await create_file(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"File created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"File created successfully: {result.get('url')}"}
                             ]
                         }
+
                     elif tool_name == "generate_and_archive":
-                        result = generate_and_archive(**arguments)
+                        result = await generate_and_archive(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Archive created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"Archive created successfully: {result.get('url')}"}
                             ]
                         }
+
+                    elif tool_name == "full_context_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await full_context_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {"type": "text", "text": result}
+                            ]
+                        }
+
+                    elif tool_name == "edit_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await edit_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
+                            ]
+                        }
+
+                    elif tool_name == "review_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await review_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
+                            ]
+                        }
+
                     else:
                         response["error"] = {
                             "code": -32601,
@@ -2807,43 +3093,51 @@ async def handle_sse(request: Request) -> Response:
                         "code": -32000,
                         "message": str(e)
                     }
+            else:
+                response["error"] = {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
             
             return JSONResponse(response)
             
         except Exception as e:
             log.error(f"Error handling POST request: {e}", exc_info=True)
             return JSONResponse(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32000,
-                        "message": str(e)
-                    }
-                },
+                {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
                 status_code=500
             )
     
     else:
         async def event_generator():
-            async with SseServerTransport("/messages") as (read_stream, write_stream):
-                try:
-                    await mcp._mcp_server.run(
-                        read_stream,
-                        write_stream,
-                        mcp._mcp_server.create_initialization_options()
-                    )
-                except Exception as e:
-                    log.error(f"SSE Error: {e}", exc_info=True)
+            """Generator for SSE events"""
+            try:
+                yield {
+                    "event": "endpoint",
+                    "data": json.dumps({
+                        "endpoint": "/messages"
+                    })
+                }
+                
+                import asyncio
+                while True:
+                    await asyncio.sleep(15)
+                    yield {
+                        "event": "ping",
+                        "data": ""
+                    }
+                    
+            except asyncio.CancelledError:
+                log.info("SSE connection closed by client")
+                raise
+            except Exception as e:
+                log.error(f"SSE Error: {e}", exc_info=True)
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
         
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
+        return EventSourceResponse(event_generator())
 
 async def handle_messages(request: Request) -> Response:
     """Handle POST requests to /messages endpoint"""
@@ -2871,17 +3165,18 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    import sys
+
+    mode = (os.getenv("MODE", "SSE"))
  
-    if "--sse" in sys.argv or "--http" in sys.argv:
+    if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
-        
+            
         log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
         log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
         log.info(f"SSE endpoint: http://{host}:{port}/sse")
         log.info(f"Messages endpoint: http://{host}:{port}/messages")
-        
+            
         uvicorn.run(
             app,
             host=host,
@@ -2889,6 +3184,17 @@ if __name__ == "__main__":
             access_log=False,
             log_level="info",
             use_colors=False
+        )
+    elif mode == "http":
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+        
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in http mode on http://{host}:{port}")
+        log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
+
+        mcp.run(
+            transport="streamable-http"
         )
     else:
         log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")
