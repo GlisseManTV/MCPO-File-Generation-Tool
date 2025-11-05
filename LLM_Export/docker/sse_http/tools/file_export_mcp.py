@@ -2799,18 +2799,31 @@ async def handle_sse(request: Request) -> Response:
                             }
                         },
                         {
-                            "name": "generate_and_archive",
-                            "description": "Generate multiple files at once and create an archive (zip, 7z, or tar.gz). Perfect for creating document packages with multiple formats.",
-                            "inputSchema": {
+                        "name": "generate_and_archive",
+                        "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                            "files_data": {
+                                "type": "array",
+                                "description": "Array of file data objects",
+                                "items": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {"type": "array", "description": "Array of file data objects"},
-                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
-                                    "archive_name": {"type": "string"},
-                                    "persistent": {"type": "boolean"}
+                                    "format": {"type": "string"},
+                                    "filename": {"type": "string"},
+                                    "content": {"type": "array"},
+                                    "title": {"type": "string"}
                                 },
-                                "required": ["files_data"]
-                            }
+                                "required": ["format"]
+                                }
+                            },
+                            "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                            "archive_name": {"type": "string"},
+                            "persistent": {"type": "boolean"}
+                            },
+                            "required": ["files_data"]
+                        }
                         },
                         {
                             "name": "full_context_document",
