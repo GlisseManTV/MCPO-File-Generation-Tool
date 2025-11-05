@@ -1417,7 +1417,7 @@ async def full_context_document(
     file_id: str,
     file_name: str,
     ctx: Context[ServerSession, None],
-    _meta: dict = None  # Paramètre pour recevoir les métadonnées
+    meta: dict = None  # Sans underscore
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1426,17 +1426,18 @@ async def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        logging.info(f"Debug - _meta content: {_meta}")
+        logging.info(f"Debug - meta content: {meta}")
         
-        if _meta and "headers" in _meta:
-            auth_header = _meta["headers"].get("authorization")
+        if meta and "headers" in meta:
+            auth_header = meta["headers"].get("authorization")
             if auth_header:
                 user_token = auth_header
-                logging.info("Authorization header received from _meta")
+                logging.info("Authorization header received from meta parameter")
             else:
+                logging.warning("No authorization in meta headers")
                 user_token = TOKEN
         else:
-            logging.warning("No headers in _meta, using TOKEN fallback")
+            logging.warning("No meta or headers in meta, using TOKEN fallback")
             user_token = TOKEN
     except Exception as e:
         logging.error(f"Error retrieving authorization header: {e}")
