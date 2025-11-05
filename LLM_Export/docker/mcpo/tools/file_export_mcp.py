@@ -477,10 +477,10 @@ def render_html_elements(soup):
                                 response = requests.get(src)
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
-                                img = Image(img_data, width=200, height=150)
+                                img = ReportLabImage(img_data, width=200, height=150)  # ✅ CORRIGÉ
                             else:
                                 log.debug(f"Loading local image: {src}")
-                                img = Image(src, width=200, height=150)
+                                img = ReportLabImage(src, width=200, height=150)  # ✅ CORRIGÉ
                             story.append(img)
                             story.append(Spacer(1, 10))
                         except Exception as e:
