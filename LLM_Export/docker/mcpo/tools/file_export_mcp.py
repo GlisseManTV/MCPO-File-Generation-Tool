@@ -297,34 +297,6 @@ log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-def setup_stdio_interceptor():
-    import sys
-    import json
-    
-    original_stdin = sys.stdin
-    
-    class InterceptedStdin:
-        def readline(self):
-            line = original_stdin.readline()
-            if line.strip():
-                try:
-                    data = json.loads(line)
-                    log.info("=" * 80)
-                    log.info("INCOMING: %s", json.dumps(data, indent=2))
-                    if 'params' in data:
-                        log.info("PARAMS KEYS: %s", list(data['params'].keys()))
-                        if 'meta' in data['params']:
-                            log.info("META: %s", data['params']['meta'])
-                    log.info("=" * 80)
-                except:
-                    pass
-            return line
-        
-        def __getattr__(self, name):
-            return getattr(original_stdin, name)
-    
-    sys.stdin = InterceptedStdin()
-
 mcp = FastMCP("file_export")
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
@@ -1446,8 +1418,7 @@ async def full_context_document(
     file_id: str,
     file_name: str,
     mcpo_headers: dict = None,
-    ctx: Context[ServerSession, None] = None,
-    meta: dict = None
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1851,9 +1822,9 @@ def _collect_needs(edit_items):
 async def edit_document(
     file_id: str,
     file_name: str,
+    edits: dict,
     mcpo_headers: dict = None,
-    ctx: Context[ServerSession, None] = None,
-    meta: dict = None
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -2416,8 +2387,7 @@ async def review_document(
     file_name: str,
     review_comments: list[tuple[int | str, str]],
     mcpo_headers: dict = None,
-    ctx: Context[ServerSession, None] = None,
-    meta: dict = None
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
