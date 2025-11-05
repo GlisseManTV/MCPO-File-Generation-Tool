@@ -1445,8 +1445,9 @@ def _apply_run_formatting(run, format_dict):
 async def full_context_document(
     file_id: str,
     file_name: str,
-    ctx: Context[ServerSession, None],
-    meta: dict = None  # Sans underscore
+    __mcpo_forwarded_headers__: dict = None,
+    ctx: Context[ServerSession, None] = None,
+    meta: dict = None
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
