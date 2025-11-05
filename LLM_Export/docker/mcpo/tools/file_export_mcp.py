@@ -3,6 +3,7 @@ import os
 import ast
 import csv
 import json
+import sys
 import uuid
 import emoji
 import math
@@ -295,6 +296,34 @@ logging.basicConfig(
 log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
+
+def setup_stdio_interceptor():
+    import sys
+    import json
+    
+    original_stdin = sys.stdin
+    
+    class InterceptedStdin:
+        def readline(self):
+            line = original_stdin.readline()
+            if line.strip():
+                try:
+                    data = json.loads(line)
+                    log.info("=" * 80)
+                    log.info("INCOMING: %s", json.dumps(data, indent=2))
+                    if 'params' in data:
+                        log.info("PARAMS KEYS: %s", list(data['params'].keys()))
+                        if 'meta' in data['params']:
+                            log.info("META: %s", data['params']['meta'])
+                    log.info("=" * 80)
+                except:
+                    pass
+            return line
+        
+        def __getattr__(self, name):
+            return getattr(original_stdin, name)
+    
+    sys.stdin = InterceptedStdin()
 
 mcp = FastMCP("file_export")
 
