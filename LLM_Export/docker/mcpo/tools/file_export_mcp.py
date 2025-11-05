@@ -3,7 +3,6 @@ import os
 import ast
 import csv
 import json
-import sys
 import uuid
 import emoji
 import math
