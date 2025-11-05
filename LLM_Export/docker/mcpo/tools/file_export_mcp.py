@@ -1851,8 +1851,9 @@ def _collect_needs(edit_items):
 async def edit_document(
     file_id: str,
     file_name: str,
-    edits: dict,
-    ctx: Context[ServerSession, None]
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None,
+    meta: dict = None
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -1903,25 +1904,16 @@ async def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-    try:
-        meta = ctx.meta
-        
-        logging.info(f"Debug - ctx.meta content: {meta}")
-        
-        if meta and "headers" in meta:
-            auth_header = meta["headers"].get("authorization")
-            if auth_header:
-                user_token = auth_header
-                logging.info("Authorization header received and extracted.")
-            else:
-                logging.warning("No Authorization header in meta['headers'].")
-                user_token = TOKEN
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
         else:
-            logging.warning("No 'headers' key in meta.")
-            user_token = TOKEN
-    except Exception as e:
-        logging.error(f"Error retrieving authorization header: {e}")
-        user_token = TOKEN
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
         user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
@@ -2423,7 +2415,9 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
-    ctx: Context[ServerSession, None]
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None,
+    meta: dict = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -2445,25 +2439,16 @@ async def review_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-    try:
-        meta = ctx.meta
-        
-        logging.info(f"Debug - ctx.meta content: {meta}")
-        
-        if meta and "headers" in meta:
-            auth_header = meta["headers"].get("authorization")
-            if auth_header:
-                user_token = auth_header
-                logging.info("Authorization header received and extracted.")
-            else:
-                logging.warning("No Authorization header in meta['headers'].")
-                user_token = TOKEN
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
         else:
-            logging.warning("No 'headers' key in meta.")
-            user_token = TOKEN
-    except Exception as e:
-        logging.error(f"Error retrieving authorization header: {e}")
-        user_token = TOKEN
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
         user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
