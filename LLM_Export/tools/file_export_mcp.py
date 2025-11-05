@@ -56,7 +56,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount 
 from starlette.responses import Response, JSONResponse 
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.8.0-beta2"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
