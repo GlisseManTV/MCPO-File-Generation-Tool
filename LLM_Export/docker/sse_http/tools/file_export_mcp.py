@@ -2697,8 +2697,6 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
 from sse_starlette.sse import EventSourceResponse
 
-from sse_starlette.sse import EventSourceResponse
-
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
     
@@ -2719,7 +2717,8 @@ async def handle_sse(request: Request) -> Response:
                 response["result"] = {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {
-                        "tools": {}
+                        "tools": {},
+                        "logging": {}
                     },
                     "serverInfo": {
                         "name": "file_export_mcp",
@@ -2799,85 +2798,28 @@ async def handle_sse(request: Request) -> Response:
                             }
                         },
                         {
-                        "name": "generate_and_archive",
-                        "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                            "files_data": {
-                                "type": "array",
-                                "description": "Array of file data objects",
-                                "items": {
-                                "type": "object",
-                                "properties": {
-                                    "format": {"type": "string"},
-                                    "filename": {"type": "string"},
-                                    "content": {"type": "array"},
-                                    "title": {"type": "string"}
-                                },
-                                "required": ["format"]
-                                }
-                            },
-                            "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
-                            "archive_name": {"type": "string"},
-                            "persistent": {"type": "boolean"}
-                            },
-                            "required": ["files_data"]
-                        }
-                        },
-                        {
-                            "name": "full_context_document",
-                            "description": "Return the structure, content, and metadata of a document",
+                            "name": "generate_and_archive",
+                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
-                                    "file_name": {"type": "string", "description": "The name of the file"}
-                                },
-                                "required": ["file_id", "file_name"]
-                            }
-                        },
-                        {
-                            "name": "review_document",
-                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
-                                    "file_name": {"type": "string", "description": "The name of the file"},
-                                    "review_comments": {
+                                    "files_data": {
                                         "type": "array",
-                                        "description": "Array of file configurations (same structure as create_file data)",
+                                        "description": "Array of file data objects",
                                         "items": {
                                             "type": "object",
                                             "properties": {
                                                 "format": {"type": "string"},
                                                 "filename": {"type": "string"},
-                                                "title": {"type": "string"},
-                                                "content": {
-                                                    "oneOf": [
-                                                        {"type": "array"},
-                                                        {"type": "string"}
-                                                    ]
-                                                },
-                                                "slides_data": {"type": "array"}
+                                                "content": {"type": "array"},
+                                                "title": {"type": "string"}
                                             },
                                             "required": ["format"]
                                         }
                                     },
-                                    "archive_format": {
-                                        "type": "string",
-                                        "enum": ["zip", "7z", "tar.gz"],
-                                        "description": "Archive format (default: zip)"
-                                    },
-                                    "archive_name": {
-                                        "type": "string",
-                                        "description": "Name of the archive file (without extension, timestamp will be added)"
-                                    },
-                                    "persistent": {
-                                        "type": "boolean",
-                                        "description": "Whether to keep the archive permanently"
-                                    }
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
                                 },
                                 "required": ["files_data"]
                             }
@@ -3018,7 +2960,8 @@ async def handle_sse(request: Request) -> Response:
                                     "type": "text",
                                     "text": f"File created successfully: {result.get('url')}"
                                 }
-                            ]
+                            ],
+                            "isError": False
                         }
                     elif tool_name == "generate_and_archive":
                         result = generate_and_archive(**arguments)
@@ -3028,7 +2971,8 @@ async def handle_sse(request: Request) -> Response:
                                     "type": "text",
                                     "text": f"Archive created successfully: {result.get('url')}"
                                 }
-                            ]
+                            ],
+                            "isError": False
                         }
                     elif tool_name == "full_context_document":
                         result = full_context_document(**arguments)
@@ -3038,7 +2982,8 @@ async def handle_sse(request: Request) -> Response:
                                     "type": "text",
                                     "text": result
                                 }
-                            ]
+                            ],
+                            "isError": False
                         }
                     elif tool_name == "edit_document":
                         result = edit_document(**arguments)
@@ -3048,7 +2993,8 @@ async def handle_sse(request: Request) -> Response:
                                     "type": "text",
                                     "text": json.dumps(result, indent=2, ensure_ascii=False)
                                 }
-                            ]
+                            ],
+                            "isError": False
                         }
                     elif tool_name == "review_document":
                         result = review_document(**arguments)
@@ -3058,7 +3004,8 @@ async def handle_sse(request: Request) -> Response:
                                     "type": "text",
                                     "text": json.dumps(result, indent=2, ensure_ascii=False)
                                 }
-                            ]
+                            ],
+                            "isError": False
                         }
                     else:
                         response["error"] = {
@@ -3067,9 +3014,14 @@ async def handle_sse(request: Request) -> Response:
                         }
                 except Exception as e:
                     log.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-                    response["error"] = {
-                        "code": -32000,
-                        "message": str(e)
+                    response["result"] = {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Error executing tool: {str(e)}"
+                            }
+                        ],
+                        "isError": True
                     }
             else:
                 response["error"] = {
@@ -3082,51 +3034,79 @@ async def handle_sse(request: Request) -> Response:
         except Exception as e:
             log.error(f"Error handling POST request: {e}", exc_info=True)
             return JSONResponse(
-                {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
-                status_code=500
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32700,
+                        "message": f"Parse error: {str(e)}"
+                    }
+                },
+                status_code=400
             )
     
     else:
         async def event_generator():
-            """Generator for SSE events"""
+            """Generator for SSE events with correct text format"""
             try:
-                yield {
-                    "event": "endpoint",
-                    "data": json.dumps({
-                        "endpoint": "/messages"
-                    })
-                }
+                endpoint_data = json.dumps({"endpoint": "/sse"})
+                yield f"event: endpoint\ndata: {endpoint_data}\n\n"
                 
                 import asyncio
                 while True:
                     await asyncio.sleep(15)
-                    yield {
-                        "event": "ping",
-                        "data": ""
-                    }
+                    yield f"event: ping\ndata: {{}}\n\n"
                     
             except asyncio.CancelledError:
                 log.info("SSE connection closed by client")
                 raise
             except Exception as e:
                 log.error(f"SSE Error: {e}", exc_info=True)
-                yield {
-                    "event": "error",
-                    "data": json.dumps({"error": str(e)})
-                }
+                error_data = json.dumps({"error": str(e)})
+                yield f"event: error\ndata: {error_data}\n\n"
         
-        return EventSourceResponse(event_generator())
+        return EventSourceResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive"
+            }
+        )
 
 async def handle_messages(request: Request) -> Response:
     """Handle POST requests to /messages endpoint"""
     try:
         data = await request.json()
-        return JSONResponse({"jsonrpc": "2.0", "result": data})
+        log.debug(f"Received message: {data}")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": data.get("id"),
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Message received"
+                    }
+                ]
+            }
+        }
+        
+        return JSONResponse(response)
     except Exception as e:
         log.error(f"Message handling error: {e}", exc_info=True)
         return JSONResponse(
-            {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
-            status_code=500
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": f"Parse error: {str(e)}"
+                }
+            },
+            status_code=400
         )
 
 async def health_check(request: Request) -> Response:
