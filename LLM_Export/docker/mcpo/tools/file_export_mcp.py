@@ -1299,7 +1299,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
         return BytesIO(response._content)
 
 def _extract_paragraph_style_info(para):
-    """Extrait les informations de style détaillées d'un paragraphe"""
+    """Extract detailed style information from a paragraph"""
     if not para.runs:
         return {}
     
@@ -1314,7 +1314,7 @@ def _extract_paragraph_style_info(para):
     }
 
 def _extract_cell_style_info(cell):
-    """Extrait les informations de style d'une cellule"""
+    """Extract style information from a cell"""
     return {
         "style": cell.style.name if hasattr(cell, 'style') else None,
         "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
