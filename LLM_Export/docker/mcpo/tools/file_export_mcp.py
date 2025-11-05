@@ -1445,7 +1445,7 @@ def _apply_run_formatting(run, format_dict):
 async def full_context_document(
     file_id: str,
     file_name: str,
-    __mcpo_forwarded_headers__: dict = None,
+    mcpo_headers: dict = None,
     ctx: Context[ServerSession, None] = None,
     meta: dict = None
 ) -> dict:
@@ -1456,11 +1456,15 @@ async def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     user_token = TOKEN
-    if __mcpo_forwarded_headers__ and "authorization" in __mcpo_forwarded_headers__:
-        user_token = __mcpo_forwarded_headers__["authorization"]
-        logging.info("✅ Authorization received from MCPO forwarded headers!")
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
     else:
-        logging.info("⚠️ No forwarded headers, using admin TOKEN")
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
         user_file = download_file(file_id=file_id,token=user_token) 
 
