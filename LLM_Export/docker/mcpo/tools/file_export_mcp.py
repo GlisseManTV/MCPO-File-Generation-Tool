@@ -1975,9 +1975,7 @@ async def edit_document(
 
     ### PPTX (PowerPoint)
     - ops: 
-        - ["insert_after", slide_id, "nK"]
         - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
-        - ["insert_before", slide_id, "nK"]
         - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:
