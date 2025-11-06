@@ -48,7 +48,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.8.0-dev4"
+SCRIPT_VERSION = "0.8.0-alpha3"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -477,10 +477,10 @@ def render_html_elements(soup):
                                 response = requests.get(src)
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
-                                img = Image(img_data, width=200, height=150)
+                                img = ReportLabImage(img_data, width=200, height=150)  # ✅ CORRIGÉ
                             else:
                                 log.debug(f"Loading local image: {src}")
-                                img = Image(src, width=200, height=150)
+                                img = ReportLabImage(src, width=200, height=150)  # ✅ CORRIGÉ
                             story.append(img)
                             story.append(Spacer(1, 10))
                         except Exception as e:
@@ -1975,9 +1975,7 @@ async def edit_document(
 
     ### PPTX (PowerPoint)
     - ops: 
-        - ["insert_after", slide_id, "nK"]
         - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
-        - ["insert_before", slide_id, "nK"]
         - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:

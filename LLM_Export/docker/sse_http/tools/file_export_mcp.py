@@ -58,7 +58,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.8.0-dev4"
+SCRIPT_VERSION = "0.8.0-alpha3"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -491,10 +491,10 @@ def render_html_elements(soup):
                                 response = requests.get(src)
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
-                                img = Image(img_data, width=200, height=150)
+                                img = ReportLabImage(img_data, width=200, height=150)
                             else:
                                 log.debug(f"Loading local image: {src}")
-                                img = Image(src, width=200, height=150)
+                                img = ReportLabImage(src, width=200, height=150)
                             story.append(img)
                             story.append(Spacer(1, 10))
                         except Exception as e:
@@ -1589,7 +1589,36 @@ async def full_context_document(
                             "paragraphs": paragraphs
                         })
                         continue
+                    if getattr(shape, "has_table", False):
+                        tbl = shape.table
+                        rows = []
+                        for r in tbl.rows:
+                            row_cells = []
+                            for c in r.cells:
+                                # collect full text
+                                if hasattr(c, "text_frame") and c.text_frame:
+                                    paras = []
+                                    for p in c.text_frame.paragraphs:
+                                        t = "".join(run.text for run in p.runs) if p.runs else p.text
+                                        t = (t or "").strip()
+                                        if t:
+                                            paras.append(t)
+                                    cell_text = "\n".join(paras)
+                                else:
+                                    cell_text = (getattr(c, "text", "") or "").strip()
+                                row_cells.append(cell_text)
+                            rows.append(row_cells)
 
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key,
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": "table",
+                            "rows": rows  # list of lists: each inner list = one row's cell texts
+                        })
+                        continue
 
                 structure["body"].append(slide_obj)
 
@@ -1825,6 +1854,112 @@ def _collect_needs(edit_items):
             needs[ref][slot] = True
     return needs
 
+def _body_placeholder_bounds(slide):
+    """Return (left, top, width, height) for the body/content area if possible, else None."""
+    try:
+        for shp in slide.shapes:
+            phf = getattr(shp, "placeholder_format", None)
+            if phf is not None:
+                # BODY placeholder is the content region on most layouts
+                if str(getattr(phf, "type", "")).endswith("BODY"):
+                    return shp.left, shp.top, shp.width, shp.height
+    except Exception:
+        pass
+    return None
+
+def _add_table_from_matrix(slide, matrix):
+    """
+    Create a table on the slide sized to the matrix (rows x cols) and fill it.
+    The table is placed over the body placeholder bounds if available,
+    else within 1-inch margins.
+    Returns the created table shape.
+    """
+    if not isinstance(matrix, (list, tuple)) or not matrix or not isinstance(matrix[0], (list, tuple)):
+        return None
+
+    rows = len(matrix)
+    cols = len(matrix[0])
+
+    # determine placement rectangle
+    rect = _body_placeholder_bounds(slide)
+    if rect:
+        left, top, width, height = rect
+    else:
+        # safe default margins
+        left = Inches(1)
+        top = Inches(1.2)
+        # try to use slide size when available
+        try:
+            prs = slide.part.presentation
+            width = prs.slide_width - Inches(2)
+            height = prs.slide_height - Inches(2.2)
+        except Exception:
+            width = Inches(8)
+            height = Inches(4.5)
+
+    tbl_shape = slide.shapes.add_table(rows, cols, left, top, width, height)
+    table = tbl_shape.table
+
+    # fill cells
+    for r in range(rows):
+        for c in range(cols):
+            try:
+                table.cell(r, c).text = "" if matrix[r][c] is None else str(matrix[r][c])
+            except Exception:
+                pass
+
+    return tbl_shape
+
+
+def _resolve_donor_simple(order, slides_by_id, anchor_id, kind):
+    """
+    kind: 'insert_after' or 'insert_before'
+    Rules:
+      insert_after(anchor):
+        - if anchor is first -> donor = next slide if exists else anchor
+        - else               -> donor = anchor
+      insert_before(anchor):
+        - if anchor is last  -> donor = previous slide if exists else anchor
+        - else               -> donor = anchor
+    """
+    if not order:
+        return None
+    if anchor_id not in order:
+        # anchor not found
+        return slides_by_id.get(order[1]) if len(order) > 1 else slides_by_id.get(order[0])
+
+    pos = order.index(anchor_id)
+    last_idx = len(order) - 1
+
+    if kind == "insert_after":
+        if pos == 0:
+            # after first slide
+            return slides_by_id.get(order[pos + 1]) if pos + 1 <= last_idx else slides_by_id.get(anchor_id)
+        else:
+            return slides_by_id.get(anchor_id)
+
+    # insert_before
+    if pos == last_idx:
+        # before last slide
+        return slides_by_id.get(order[pos - 1]) if pos - 1 >= 0 else slides_by_id.get(anchor_id)
+    else:
+        return slides_by_id.get(anchor_id)
+
+def _set_table_from_matrix(shape, data):
+    # data = list[list[Any]]; trims to current table size
+    tbl = shape.table
+    max_r = len(tbl.rows)
+    max_c = len(tbl.columns)
+    for r, row_vals in enumerate(data):
+        if r >= max_r:
+            break
+        for c, val in enumerate(row_vals):
+            if c >= max_c:
+                break
+            tbl.cell(r, c).text = ""  # clear
+            tbl.cell(r, c).text = "" if val is None else str(val)
+
+
 @mcp.tool()
 async def edit_document(
     file_id: str,
@@ -1846,13 +1981,19 @@ async def edit_document(
 
     ### PPTX (PowerPoint)
     - ops: 
-        - ["insert_after", slide_id, "nK"]
-        - ["insert_before", slide_id, "nK"]
+        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
+        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:
-        - ["sid:<slide_id>/shid:<shape_id>", text_or_list]
-        - ["nK:slot:title", text_or_list]
-        - ["nK:slot:body", text_or_list]
+        - Edit a text shape
+            ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+        - Edit a table
+            ["sid:<slide_id>/shid:<shape_id>", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
+        - Edit title or body or table of a newly inserted slide
+            ["nK:slot:title", text_or_list]
+            ["nK:slot:body", text_or_list]
+            ["nK:slot:table", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
+
 
     ### DOCX (Word)
     - ops:
@@ -2093,11 +2234,19 @@ async def edit_document(
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            style_donor = slides_by_id.get(order[-1])
+                            like_sid = None
+                            if len(op) >= 4 and isinstance(op[3], dict):
+                                like_sid = op[3].get("layout_like_sid")
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
-                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            # style_donor selection
+                            if like_sid and like_sid in slides_by_id:
+                                style_donor = slides_by_id[like_sid]
+                            else:
+                                style_donor = _resolve_donor_simple(order, slides_by_id, anchor_id, kind)
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"]) if style_donor else prs.slide_layouts[0]
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
+
                             sldIdLst = prs.slides._sldIdLst
                             new_sldId = sldIdLst[-1]
                             try:
@@ -2110,13 +2259,24 @@ async def edit_document(
                             slides_by_id[new_sid] = new_slide
                             new_refs[new_ref] = new_sid
 
+
                     elif kind == "insert_before" and len(op) >= 3:
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            style_donor = slides_by_id.get(order[-1])
+                            like_sid = None
+                            if len(op) >= 4 and isinstance(op[3], dict):
+                                like_sid = op[3].get("layout_like_sid")
+
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
-                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+
+                            # style_donor selection
+                            if like_sid and like_sid in slides_by_id:
+                                style_donor = slides_by_id[like_sid]
+                            else:
+                                style_donor = _resolve_donor_simple(order, slides_by_id, anchor_id, kind)
+
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"]) if style_donor else prs.slide_layouts[0]
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
 
@@ -2148,6 +2308,22 @@ async def edit_document(
                     if not isinstance(target, str):
                         continue
                     t = target.strip()
+
+                    # >>> ADD: table edit 
+                    # target format: sid:<sid>/shid:<shid>  with new_text like [[row1...],[row2...],...]
+                    m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
+                    if m:
+                        slide_id = int(m.group(1))
+                        shape_id = int(m.group(2))
+                        slide = slides_by_id.get(slide_id)
+                        if slide:
+                            shape = shape_by_id(slide, shape_id)
+                            if shape and getattr(shape, "has_table", False) and isinstance(new_text, (list, tuple)) and new_text and isinstance(new_text[0], (list, tuple)):
+                                _set_table_from_matrix(shape, new_text)
+                                continue
+                            
+                    # <<< END ADD
+
                     m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
                     if m:
                         slide_id = int(m.group(1))
@@ -2186,6 +2362,21 @@ async def edit_document(
                                     pass
                         else:
                             tf.text = str(new_text)
+                        continue
+
+                    # nK:table  (create a new table on a newly inserted slide nK)
+                    m = re.match(r"^(n\d+):slot:table$", t, flags=re.I)
+                    if m:
+                        ref = m.group(1)
+                        sid = new_refs.get(ref)
+                        if not sid:
+                            continue
+                        slide = slides_by_id.get(sid)
+                        if not slide:
+                            continue
+                        # new_text must be a 2D list
+                        if isinstance(new_text, (list, tuple)) and new_text and isinstance(new_text[0], (list, tuple)):
+                            _add_table_from_matrix(slide, new_text)
                         continue
  
 
@@ -2760,7 +2951,8 @@ async def handle_sse(request: Request) -> Response:
                 response["result"] = {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {
-                        "tools": {}
+                        "tools": {},
+                        "logging": {}
                     },
                     "serverInfo": {
                         "name": "file_export_mcp",
@@ -2841,71 +3033,27 @@ async def handle_sse(request: Request) -> Response:
                         },
                         {
                             "name": "generate_and_archive",
-                            "description": "Generate multiple files at once and create an archive (zip, 7z, or tar.gz). Perfect for creating document packages with multiple formats.",
+                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {"type": "array", "description": "Array of file data objects"},
-                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
-                                    "archive_name": {"type": "string"},
-                                    "persistent": {"type": "boolean"}
-                                },
-                                "required": ["files_data"]
-                            }
-                        },
-                        {
-                            "name": "full_context_document",
-                            "description": "Return the structure, content, and metadata of a document",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
-                                    "file_name": {"type": "string", "description": "The name of the file"}
-                                },
-                                "required": ["file_id", "file_name"]
-                            }
-                        },
-                        {
-                            "name": "review_document",
-                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
-                                    "file_name": {"type": "string", "description": "The name of the file"},
-                                    "review_comments": {
+                                    "files_data": {
                                         "type": "array",
-                                        "description": "Array of file configurations (same structure as create_file data)",
+                                        "description": "Array of file data objects",
                                         "items": {
                                             "type": "object",
                                             "properties": {
                                                 "format": {"type": "string"},
                                                 "filename": {"type": "string"},
-                                                "title": {"type": "string"},
-                                                "content": {
-                                                    "oneOf": [
-                                                        {"type": "array"},
-                                                        {"type": "string"}
-                                                    ]
-                                                },
-                                                "slides_data": {"type": "array"}
+                                                "content": {"type": "array"},
+                                                "title": {"type": "string"}
                                             },
                                             "required": ["format"]
                                         }
                                     },
-                                    "archive_format": {
-                                        "type": "string",
-                                        "enum": ["zip", "7z", "tar.gz"],
-                                        "description": "Archive format (default: zip)"
-                                    },
-                                    "archive_name": {
-                                        "type": "string",
-                                        "description": "Name of the archive file (without extension, timestamp will be added)"
-                                    },
-                                    "persistent": {
-                                        "type": "boolean",
-                                        "description": "Whether to keep the archive permanently"
-                                    }
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
                                 },
                                 "required": ["files_data"]
                             }
@@ -3042,16 +3190,24 @@ async def handle_sse(request: Request) -> Response:
                         result = await create_file(**arguments)
                         response["result"] = {
                             "content": [
-                                {"type": "text", "text": f"File created successfully: {result.get('url')}"}
-                            ]
+                                {
+                                    "type": "text",
+                                    "text": f"File created successfully: {result.get('url')}"
+                                }
+                            ],
+                            "isError": False
                         }
 
                     elif tool_name == "generate_and_archive":
                         result = await generate_and_archive(**arguments)
                         response["result"] = {
                             "content": [
-                                {"type": "text", "text": f"Archive created successfully: {result.get('url')}"}
-                            ]
+                                {
+                                    "type": "text",
+                                    "text": f"Archive created successfully: {result.get('url')}"
+                                }
+                            ],
+                            "isError": False
                         }
 
                     elif tool_name == "full_context_document":
@@ -3059,8 +3215,12 @@ async def handle_sse(request: Request) -> Response:
                         result = await full_context_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {"type": "text", "text": result}
-                            ]
+                                {
+                                    "type": "text",
+                                    "text": result
+                                }
+                            ],
+                            "isError": False
                         }
 
                     elif tool_name == "edit_document":
@@ -3068,8 +3228,12 @@ async def handle_sse(request: Request) -> Response:
                         result = await edit_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
-                            ]
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                                }
+                            ],
+                            "isError": False
                         }
 
                     elif tool_name == "review_document":
@@ -3077,8 +3241,12 @@ async def handle_sse(request: Request) -> Response:
                         result = await review_document(**arguments)
                         response["result"] = {
                             "content": [
-                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
-                            ]
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                                }
+                            ],
+                            "isError": False
                         }
 
                     else:
@@ -3088,9 +3256,14 @@ async def handle_sse(request: Request) -> Response:
                         }
                 except Exception as e:
                     log.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-                    response["error"] = {
-                        "code": -32000,
-                        "message": str(e)
+                    response["result"] = {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Error executing tool: {str(e)}"
+                            }
+                        ],
+                        "isError": True
                     }
             else:
                 response["error"] = {
@@ -3103,51 +3276,79 @@ async def handle_sse(request: Request) -> Response:
         except Exception as e:
             log.error(f"Error handling POST request: {e}", exc_info=True)
             return JSONResponse(
-                {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
-                status_code=500
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32700,
+                        "message": f"Parse error: {str(e)}"
+                    }
+                },
+                status_code=400
             )
     
     else:
         async def event_generator():
-            """Generator for SSE events"""
+            """Generator for SSE events with correct text format"""
             try:
-                yield {
-                    "event": "endpoint",
-                    "data": json.dumps({
-                        "endpoint": "/messages"
-                    })
-                }
+                endpoint_data = json.dumps({"endpoint": "/sse"})
+                yield f"event: endpoint\ndata: {endpoint_data}\n\n"
                 
                 import asyncio
                 while True:
                     await asyncio.sleep(15)
-                    yield {
-                        "event": "ping",
-                        "data": ""
-                    }
+                    yield f"event: ping\ndata: {{}}\n\n"
                     
             except asyncio.CancelledError:
                 log.info("SSE connection closed by client")
                 raise
             except Exception as e:
                 log.error(f"SSE Error: {e}", exc_info=True)
-                yield {
-                    "event": "error",
-                    "data": json.dumps({"error": str(e)})
-                }
+                error_data = json.dumps({"error": str(e)})
+                yield f"event: error\ndata: {error_data}\n\n"
         
-        return EventSourceResponse(event_generator())
+        return EventSourceResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive"
+            }
+        )
 
 async def handle_messages(request: Request) -> Response:
     """Handle POST requests to /messages endpoint"""
     try:
         data = await request.json()
-        return JSONResponse({"jsonrpc": "2.0", "result": data})
+        log.debug(f"Received message: {data}")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": data.get("id"),
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Message received"
+                    }
+                ]
+            }
+        }
+        
+        return JSONResponse(response)
     except Exception as e:
         log.error(f"Message handling error: {e}", exc_info=True)
         return JSONResponse(
-            {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
-            status_code=500
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": f"Parse error: {str(e)}"
+                }
+            },
+            status_code=400
         )
 
 async def health_check(request: Request) -> Response:
