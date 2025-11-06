@@ -35,4 +35,4 @@ RUN mkdir -p /rootPath/output
 
 EXPOSE 9004
 
-CMD ["python", "/rootPath/tools/file_export_mcp.py", "--sse", "--no-color"]
+CMD ["python", "/rootPath/tools/file_export_mcp.py", "--no-color"]

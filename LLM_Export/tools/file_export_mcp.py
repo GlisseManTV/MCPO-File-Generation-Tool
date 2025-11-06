@@ -15,10 +15,13 @@ import zipfile
 import py7zr
 import logging
 import requests
+from requests import get, post
 from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
 import tempfile
+from pathlib import Path
+from lxml import etree
 from PIL import Image
 from docx import Document
 from docx.shared import Inches
@@ -28,12 +31,14 @@ from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
+from pptx.enum.shapes import PP_PLACEHOLDER 
 from pptx.parts.image import Image
 from pptx.enum.text import MSO_AUTO_SIZE
 from io import BytesIO
@@ -53,7 +58,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount 
 from starlette.responses import Response, JSONResponse 
 
-SCRIPT_VERSION = "0.7.1"
+SCRIPT_VERSION = "0.8.0-beta3"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -304,7 +309,9 @@ log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-mcp = FastMCP("file_export")
+mcp = FastMCP(
+    name = "file_export"
+)
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
     total_chars = sum(len(line) for line in content_list)
@@ -1267,19 +1274,19 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
@@ -1288,22 +1295,131 @@ def upload_file(file_path: str, filename: str, file_type: str) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
     else:
         return BytesIO(response._content)
+    
+def _extract_paragraph_style_info(para):
+    """Extrait les informations de style détaillées d'un paragraphe"""
+    if not para.runs:
+        return {}
+    
+    first_run = para.runs[0]
+    return {
+        "font_name": first_run.font.name,
+        "font_size": first_run.font.size,
+        "bold": first_run.font.bold,
+        "italic": first_run.font.italic,
+        "underline": first_run.font.underline,
+        "color": first_run.font.color.rgb if first_run.font.color else None
+    }
+
+def _extract_cell_style_info(cell):
+    """Extrait les informations de style d'une cellule"""
+    return {
+        "style": cell.style.name if hasattr(cell, 'style') else None,
+        "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
+    }
+
+def _apply_text_to_paragraph(para, new_text):
+    """
+    Apply new text to a paragraph while preserving formatting.
+    """
+    original_style = para.style
+    original_alignment = para.alignment
+    
+    original_run_format = None
+    if para.runs:
+        first_run = para.runs[0]
+        original_run_format = {
+            "font_name": first_run.font.name,
+            "font_size": first_run.font.size,
+            "bold": first_run.font.bold,
+            "italic": first_run.font.italic,
+            "underline": first_run.font.underline,
+            "color": first_run.font.color.rgb if first_run.font.color and first_run.font.color.rgb else None
+        }
+    
+    for _ in range(len(para.runs)):
+        para._element.remove(para.runs[0]._element)
+    
+    if isinstance(new_text, list):
+        for i, text_item in enumerate(new_text):
+            if i > 0:
+                para.add_run("\n")
+            run = para.add_run(str(text_item))
+            if original_run_format:
+                _apply_run_formatting(run, original_run_format)
+    else:
+        run = para.add_run(str(new_text))
+        if original_run_format:
+            _apply_run_formatting(run, original_run_format)
+    
+    if original_style:
+        try:
+            para.style = original_style
+        except Exception:
+            pass
+    if original_alignment is not None:
+        try:
+            para.alignment = original_alignment
+        except Exception:
+            pass
+
+
+def _apply_run_formatting(run, format_dict):
+    """
+    Apply formatting from a dict to a run.
+    """
+    try:
+        if format_dict.get("font_name"):
+            run.font.name = format_dict["font_name"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("font_size"):
+            run.font.size = format_dict["font_size"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("bold") is not None:
+            run.font.bold = format_dict["bold"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("italic") is not None:
+            run.font.italic = format_dict["italic"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("underline") is not None:
+            run.font.underline = format_dict["underline"]
+    except Exception:
+        pass
+    
+    try:
+        if format_dict.get("color"):
+            from docx.shared import RGBColor
+            run.font.color.rgb = format_dict["color"]
+    except Exception:
+        pass
 
 @mcp.tool(
     name="full_context_document",
@@ -1311,9 +1427,10 @@ def download_file(file_id: str) -> BytesIO:
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
 
-def full_context_document(
+async def full_context_document(
     file_id: str,
-    file_name: str
+    file_name: str,
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1322,7 +1439,14 @@ def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id,token=user_token)
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
@@ -1334,50 +1458,70 @@ def full_context_document(
             "file_name": file_name,
             "file_id": file_id,
             "type": file_type,
-            "body": []
+            "slide_id_order": [],
+            "body": [],
         }
         index_counter = 1
 
         if file_type == "docx":
             doc = Document(user_file)
-
+            
+            para_id_counter = 1
+            
             for para in doc.paragraphs:
                 text = para.text.strip()
                 if not text:
                     continue
+                
                 style = para.style.name
+                style_info = _extract_paragraph_style_info(para)
                 element_type = "heading" if style.startswith("Heading") else "paragraph"
+                
+                para_xml_id = para_id_counter
+                
                 structure["body"].append({
-                    "index": index_counter,
+                    "index": para_id_counter,
+                    "para_xml_id": para_xml_id,
+                    "id_key": f"pid:{para_xml_id}",
                     "type": element_type,
                     "style": style,
+                    "style_info": style_info,
                     "text": text
                 })
-                index_counter += 1
-
-            for table in doc.tables:
-                table_text = []
-                for row in table.rows:
-                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-                    if row_text:
-                        table_text.append(row_text)
-                if table_text:
-                    structure["body"].append({
-                        "index": index_counter,
-                        "type": "table",
-                        "style": "Table",
-                        "text": "\n".join(table_text)
-                    })
-                    index_counter += 1
-
-            for shape in doc.inline_shapes:
-                structure["body"].append({
-                    "index": index_counter,
-                    "type": "image",
-                    "style": "InlineImage",
-                    "text": f"Image inline {index_counter}"
-                })
-                index_counter += 1
+                para_id_counter += 1
+            
+            for table_idx, table in enumerate(doc.tables):
+                table_xml_id = id(table._element)
+                table_info = {
+                    "index": para_id_counter,
+                    "table_xml_id": table_xml_id,
+                    "id_key": f"tid:{table_xml_id}",
+                    "type": "table",
+                    "style": "Table",
+                    "table_id": table_idx,
+                    "rows": len(table.rows),
+                    "columns": len(table.rows[0].cells) if table.rows else 0,
+                    "cells": []
+                }
+                
+                for row_idx, row in enumerate(table.rows):
+                    row_data = []
+                    for col_idx, cell in enumerate(row.cells):
+                        cell_xml_id = id(cell._element)
+                        cell_text = cell.text.strip()
+                        cell_data = {
+                            "row": row_idx,
+                            "column": col_idx,
+                            "cell_xml_id": cell_xml_id,
+                            "id_key": f"tid:{table_xml_id}/cid:{cell_xml_id}",
+                            "text": cell_text,
+                            "style": cell.style.name if hasattr(cell, 'style') else None
+                        }
+                        row_data.append(cell_data)
+                    table_info["cells"].append(row_data)
+                
+                structure["body"].append(table_info)
+                para_id_counter += 1
 
         elif file_type == "xlsx":
             wb = load_workbook(user_file, read_only=True, data_only=True)
@@ -1399,37 +1543,56 @@ def full_context_document(
 
         elif file_type == "pptx":
             prs = Presentation(user_file)
-            for slide_idx, slide in enumerate(prs.slides, start=0):
-                if slide_idx == 0:
-                    continue
-                title = slide.shapes.title.text.strip() if slide.shapes.title and slide.shapes.title.text else ""
-                if title:
-                    structure["body"].append({
-                        "index": slide_idx,
-                        "type": "heading",
-                        "style": f"Slide {slide_idx} Title",
-                        "text": title
-                    })
-                    index_counter += 1
+            structure["slide_id_order"] = [int(s.slide_id) for s in prs.slides]
+            for slide_idx, slide in enumerate(prs.slides):
+                title_shape = slide.shapes.title if hasattr(slide.shapes, "title") else None
+                title_text = title_shape.text.strip() if (title_shape and getattr(title_shape, "text", "").strip()) else ""
 
-                for shape in slide.shapes:
-                    if hasattr(shape, "text_frame") and shape.text_frame and shape.text_frame.text.strip():
-                        structure["body"].append({
-                            "index": slide_idx,
-                            "type": "paragraph",
-                            "style": f"Slide {slide_idx} Content",
-                            "text": shape.text_frame.text.strip()
-                        })
-                        index_counter += 1
+                slide_obj = {
+                    "index": slide_idx,
+                    "slide_id": int(slide.slide_id),
+                    "id_key": f"sid:{int(slide.slide_id)}",
+                    "title": title_text,
+                    "shapes": []
+                }
+                
 
+                for shape_idx, shape in enumerate(slide.shapes):
+                    key = f"s{slide_idx}/sh{shape_idx}"
                     if hasattr(shape, "image"):
-                        structure["body"].append({
-                            "index": slide_idx,
-                            "type": "image",
-                            "style": f"Slide {slide_idx} Image",
-                            "text": f"Image on slide {slide_idx}"
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id  
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key, 
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": "image"
                         })
-                        index_counter += 1
+                        continue
+
+                    if hasattr(shape, "text_frame") and shape.text_frame:
+                        kind = "title" if (title_shape is not None and shape is title_shape) else "textbox"
+
+                        paragraphs = []
+                        for p in shape.text_frame.paragraphs:
+                            text = "".join(run.text for run in p.runs) if p.runs else p.text
+                            text = (text or "").strip()
+                            if text != "":
+                                paragraphs.append(text)
+
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id 
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key, 
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": kind,
+                            "paragraphs": paragraphs
+                        })
+                        continue
+
+
+                structure["body"].append(slide_obj)
 
         else:
             return json.dumps({
@@ -1467,29 +1630,798 @@ def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
     comment.height = height
     cell.comment = comment
 
+
+def _snapshot_runs(p):
+    """Return a list of {'text': str, 'font': {...}} for each run in a paragraph."""
+    runs = []
+    for r in p.runs:
+        f = r.font
+        font_spec = {
+            "name": f.name,
+            "size": f.size,
+            "bold": f.bold,
+            "italic": f.italic,
+            "underline": f.underline,
+            "color_rgb": getattr(getattr(f.color, "rgb", None), "rgb", None) or getattr(f.color, "rgb", None)
+        }
+        runs.append({"text": r.text or "", "font": font_spec})
+    return runs
+
+def _apply_font(run, font_spec):
+    """Apply font specifications to a run."""
+    if not font_spec:
+        return
+    f = run.font
+    try:
+        if font_spec.get("name") is not None:
+            f.name = font_spec["name"]
+        if font_spec.get("size") is not None:
+            f.size = font_spec["size"]
+        if font_spec.get("bold") is not None:
+            f.bold = font_spec["bold"]
+        if font_spec.get("italic") is not None:
+            f.italic = font_spec["italic"]
+        if font_spec.get("underline") is not None:
+            f.underline = font_spec["underline"]
+        rgb = font_spec.get("color_rgb")
+        if rgb is not None:
+            try:
+                f.color.rgb = rgb
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def _set_text_with_runs(shape, new_content):
+    """
+    Set the text of a shape while preserving the original run-level formatting.
+    """
+
+    if not (hasattr(shape, "text_frame") and shape.text_frame):
+        return
+    tf = shape.text_frame
+
+    if isinstance(new_content, list):
+        lines = [str(item) for item in new_content]
+    else:
+        lines = [str(new_content or "")]
+
+    original_para_styles = []
+    original_para_runs = []     
+
+    for p in tf.paragraphs:
+        level = int(getattr(p, "level", 0) or 0)
+        alignment = getattr(p, "alignment", None)
+        original_para_styles.append({"level": level, "alignment": alignment})
+        original_para_runs.append(_snapshot_runs(p))
+
+    tf.clear()
+
+    for i, line in enumerate(lines):
+        p = tf.paragraphs[0] if (i == 0 and tf.paragraphs) else tf.add_paragraph()
+
+        if original_para_styles:
+            style = original_para_styles[i] if i < len(original_para_styles) else original_para_styles[-1]
+            p.level = style.get("level", 0)
+            if style.get("alignment") is not None:
+                p.alignment = style["alignment"]
+
+        runs_spec = (
+            original_para_runs[i] if i < len(original_para_runs)
+            else (original_para_runs[-1] if original_para_runs else [])
+        )
+
+        if not runs_spec:
+            r = p.add_run()
+            r.text = line
+            continue
+
+        n = len(runs_spec)
+        total = len(line)
+
+        if total == 0:
+            for spec in runs_spec:
+                r = p.add_run()
+                r.text = ""
+                _apply_font(r, spec["font"])
+        else:
+            base, rem = divmod(total, n)
+            sizes = [base + (1 if k < rem else 0) for k in range(n)]
+            pos = 0
+            for k, spec in enumerate(runs_spec):
+                seg = line[pos:pos + sizes[k]]
+                pos += sizes[k]
+                r = p.add_run()
+                r.text = seg
+                _apply_font(r, spec["font"])
+
+def shape_by_id(slide, shape_id):
+    sid = int(shape_id)
+    for sh in slide.shapes:
+        val = getattr(sh, "shape_id", None) or getattr(getattr(sh, "_element", None), "cNvPr", None)
+        val = int(getattr(val, "id", val)) if val is not None else None
+        if val == sid:
+            return sh
+    return None
+
+
+def ensure_slot_textbox(slide, slot):
+    slot = (slot or "").lower()
+
+    def _get(ph_name):
+        return getattr(PP_PLACEHOLDER, ph_name, None)
+
+    TITLE = _get("TITLE")
+    CENTER_TITLE = _get("CENTER_TITLE")
+    SUBTITLE = _get("SUBTITLE")
+    BODY = _get("BODY")
+    CONTENT = _get("CONTENT")
+    OBJECT = _get("OBJECT")
+
+    title_types = {t for t in (TITLE, CENTER_TITLE, SUBTITLE) if t is not None}
+    body_types  = {t for t in (BODY, CONTENT, OBJECT) if t is not None}
+
+    def find_placeholder(accepted_types):
+        for sh in slide.shapes:
+            if not getattr(sh, "is_placeholder", False):
+                continue
+            pf = getattr(sh, "placeholder_format", None)
+            if not pf:
+                continue
+            try:
+                if pf.type in accepted_types:
+                    return sh
+            except Exception:
+                pass
+        return None
+
+    if slot == "title":
+        ph = find_placeholder(title_types)
+        if ph:
+            return ph
+
+    if slot == "body":
+        ph = find_placeholder(body_types)
+        if ph:
+            return ph
+
+    from pptx.util import Inches
+    if slot == "title":
+        return slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
+    if slot == "body":
+        return slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(4))
+    return slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(8), Inches(1.5))
+
+def _layout_has(layout, want_title=False, want_body=False):  # ADD
+    has_title = has_body = False
+    for ph in getattr(layout, "placeholders", []):
+        pf = getattr(ph, "placeholder_format", None)
+        t = getattr(pf, "type", None) if pf else None
+        if t in (getattr(PP_PLACEHOLDER, "TITLE", None),
+                 getattr(PP_PLACEHOLDER, "CENTER_TITLE", None),
+                 getattr(PP_PLACEHOLDER, "SUBTITLE", None)):
+            has_title = True
+        if t in (getattr(PP_PLACEHOLDER, "BODY", None),
+                 getattr(PP_PLACEHOLDER, "CONTENT", None),
+                 getattr(PP_PLACEHOLDER, "OBJECT", None)):
+            has_body = True
+    return (not want_title or has_title) and (not want_body or has_body)
+
+def _pick_layout_for_slots(prs, anchor_slide, needs_title, needs_body):  # ADD
+    if anchor_slide and _layout_has(anchor_slide.slide_layout, needs_title, needs_body):
+        return anchor_slide.slide_layout
+    for layout in prs.slide_layouts:
+        if _layout_has(layout, needs_title, needs_body):
+            return layout
+    return anchor_slide.slide_layout if anchor_slide else prs.slide_layouts[-1]
+
+def _collect_needs(edit_items):  # ADD
+    needs = {}
+    for tgt, _ in edit_items:
+        if not isinstance(tgt, str):
+            continue
+        m = re.match(r"^(n\d+):slot:(title|body)$", tgt.strip(), flags=re.I)
+        if m:
+            ref, slot = m.group(1), m.group(2).lower()
+            needs.setdefault(ref, {"title": False, "body": False})
+            needs[ref][slot] = True
+    return needs
+
+@mcp.tool()
+async def edit_document(
+    file_id: str,
+    file_name: str,
+    edits: dict,
+    ctx: Context[ServerSession, None]
+) -> dict:
+    """
+    Edits a document (docx, xlsx, pptx) using structured operations.
+
+    Args:
+        file_id: Unique identifier for the document.
+        file_name: Name of the document file.
+        edits: Dictionary with:
+            - "ops": List of structural changes.
+            - "content_edits": List of content updates.
+
+    ## Supported Formats
+
+    ### PPTX (PowerPoint)
+    - ops: 
+        - ["insert_after", slide_id, "nK"]
+        - ["insert_before", slide_id, "nK"]
+        - ["delete_slide", slide_id]
+    - content_edits:
+        - ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+        - ["nK:slot:title", text_or_list]
+        - ["nK:slot:body", text_or_list]
+
+    ### DOCX (Word)
+    - ops:
+        - ["insert_after", para_xml_id, "nK"]
+        - ["insert_before", para_xml_id, "nK"]
+        - ["delete_paragraph", para_xml_id]
+    - content_edits:
+        - ["pid:<para_xml_id>", text_or_list]
+        - ["tid:<table_xml_id>/cid:<cell_xml_id>", text]
+        - ["nK", text_or_list]
+
+    ### XLSX (Excel)
+    - ops:
+        - ["insert_row", "sheet_name", row_idx]
+        - ["delete_row", "sheet_name", row_idx]
+        - ["insert_column", "sheet_name", col_idx]
+        - ["delete_column", "sheet_name", col_idx]
+    - content_edits:
+        - ["<ref>", value]
+
+    ## Notes
+    - Always call `full_context_document()` first to get IDs.
+    - Use cell refs like "A1", "B5".
+    - Formatting is preserved.
+    - Returns a download link to the edited file.
+    """
+    temp_folder = f"/app/temp/{uuid.uuid4()}"
+    os.makedirs(temp_folder, exist_ok=True)
+    try:
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id, token=user_token)
+        if isinstance(user_file, dict) and "error" in user_file:
+            return json.dumps(user_file, indent=4, ensure_ascii=False)
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        file_type = file_extension.lstrip('.')
+
+        edited_path = None
+        response = None
+
+        if file_type == "docx":
+            try:
+                doc = Document(user_file)
+                
+                para_by_xml_id = {}
+                table_by_xml_id = {}
+                cell_by_xml_id = {}
+                
+                para_id_counter = 1
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    para_by_xml_id[para_id_counter] = para
+                    para_id_counter += 1
+          
+                for table in doc.tables:
+                    table_xml_id = id(table._element)
+                    table_by_xml_id[table_xml_id] = table
+                    for row in table.rows:
+                        for cell in row.cells:
+                            cell_xml_id = id(cell._element)
+                            cell_by_xml_id[cell_xml_id] = cell
+          
+                if isinstance(edits, dict):
+                    ops = edits.get("ops", []) or []
+                    edit_items = edits.get("content_edits", []) or []
+                else:
+                    ops = []
+                    edit_items = edits
+          
+                new_refs = {}
+                
+                for op in ops:
+                    if not isinstance(op, (list, tuple)) or not op:
+                        continue
+                    kind = op[0]
+                    
+                    if kind == "insert_after" and len(op) >= 3:
+                        anchor_xml_id = int(op[1])
+                        new_ref = op[2]
+                        
+                        anchor_para = para_by_xml_id.get(anchor_xml_id)
+                        if anchor_para:
+                            para_index = doc.paragraphs.index(anchor_para)
+          	       	      
+                            new_para = doc.add_paragraph()
+          	       	      
+                            anchor_element = anchor_para._element
+                            parent = anchor_element.getparent()
+                            parent.insert(parent.index(anchor_element) + 1, new_para._element)
+          	       	      
+                            new_para.style = anchor_para.style
+      	      				
+                            new_xml_id = id(new_para._element)
+                            new_refs[new_ref] = new_xml_id
+                            para_by_xml_id[new_xml_id] = new_para
+      	      		
+                    elif kind == "insert_before" and len(op) >= 3:
+                        anchor_xml_id = int(op[1])
+                        new_ref = op[2]
+                        
+                        anchor_para = para_by_xml_id.get(anchor_xml_id)
+                        if anchor_para:
+                            new_para = doc.add_paragraph()
+          	       	      
+                            anchor_element = anchor_para._element
+                            parent = anchor_element.getparent()
+                            parent.insert(parent.index(anchor_element), new_para._element)
+          	       	      
+                            new_para.style = anchor_para.style
+      	      				
+                            new_xml_id = id(new_para._element)
+                            new_refs[new_ref] = new_xml_id
+                            para_by_xml_id[new_xml_id] = new_para
+      	      		
+                    elif kind == "delete_paragraph" and len(op) >= 2:
+                        para_xml_id = int(op[1])
+                        para = para_by_xml_id.get(para_xml_id)
+                        if para:
+                            parent = para._element.getparent()
+                            parent.remove(para._element)
+                            para_by_xml_id.pop(para_xml_id, None)
+                
+                for target, new_text in edit_items:
+                    if not isinstance(target, str):
+                        continue
+      	      		
+                    t = target.strip()
+                    
+                    m = re.match(r"^pid:(\d+)$", t, flags=re.I)
+                    if m:
+                        para_xml_id = int(m.group(1))
+                        para = para_by_xml_id.get(para_xml_id)
+                        if para:
+                            _apply_text_to_paragraph(para, new_text)
+                        continue
+      	      		
+                    m = re.match(r"^tid:(\d+)/cid:(\d+)$", t, flags=re.I)
+                    if m:
+                        table_xml_id = int(m.group(1))
+                        cell_xml_id = int(m.group(2))
+                        cell = cell_by_xml_id.get(cell_xml_id)
+                        if cell:
+                            for para in cell.paragraphs:
+                                for _ in range(len(para.runs)):
+                                    para._element.remove(para.runs[0]._element)
+          	       	      
+                            if cell.paragraphs:
+                                first_para = cell.paragraphs[0]
+                                first_para.add_run(str(new_text))
+                        continue
+      	      		
+                    m = re.match(r"^n(\d+)$", t, flags=re.I)
+                    if m:
+                        new_ref = t
+                        para_xml_id = new_refs.get(new_ref)
+                        if para_xml_id:
+                            para = para_by_xml_id.get(para_xml_id)
+                            if para:
+                                _apply_text_to_paragraph(para, new_text)
+                        continue
+          
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.docx"
+                )
+                doc.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="docx", 
+                    token=user_token
+                )
+            except Exception as e:
+                raise Exception(f"Error during DOCX editing: {e}")
+
+        elif file_type == "xlsx":
+            try:
+                wb = load_workbook(user_file)
+                ws = wb.active
+
+                edit_items = edits.get("content_edits", []) if isinstance(edits, dict) and "content_edits" in edits else edits
+          
+                for index, new_text in edit_items:
+                    try:
+                        if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
+                            cell_ref = index.strip().upper()
+                        elif isinstance(index, int):
+                            cell_ref = f"A{index+1}"
+                        else:
+                            cell_ref = "A1"
+
+                        cell = ws[cell_ref]
+                        cell.value = new_text
+                    except Exception:
+                        fallback_cell = ws["A1"]
+                        fallback_cell.value = new_text
+
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.xlsx"
+                )
+                wb.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="xlsx", 
+                    token=user_token
+                )
+            except Exception as e:
+                raise Exception(f"Error during XLSX editing: {e}")
+
+        elif file_type == "pptx":
+            try:
+                prs = Presentation(user_file)
+                if isinstance(edits, dict):
+                    ops = edits.get("ops", []) or []
+                    edit_items = edits.get("content_edits", []) or []
+                else:
+                    ops = []
+                    edit_items = edits
+                new_ref_needs = _collect_needs(edit_items)
+                order = [int(s.slide_id) for s in prs.slides]
+                slides_by_id = {int(s.slide_id): s for s in prs.slides}
+                new_refs = {}
+                
+                for op in ops:
+                    if not isinstance(op, (list, tuple)) or not op:
+                        continue
+                    kind = op[0]
+
+                    if kind == "insert_after" and len(op) >= 3:
+                        anchor_id = int(op[1])
+                        new_ref = op[2]
+                        if anchor_id in order:
+                            style_donor = slides_by_id.get(order[-1])
+                            needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            new_slide = prs.slides.add_slide(layout)
+                            new_sid = int(new_slide.slide_id)
+                            sldIdLst = prs.slides._sldIdLst
+                            new_sldId = sldIdLst[-1]
+                            try:
+                                anchor_pos = order.index(anchor_id)
+                                sldIdLst.remove(new_sldId)
+                                sldIdLst.insert(anchor_pos + 1, new_sldId)
+                            except Exception:
+                                pass 
+                            order.insert(order.index(anchor_id) + 1, new_sid)
+                            slides_by_id[new_sid] = new_slide
+                            new_refs[new_ref] = new_sid
+
+                    elif kind == "insert_before" and len(op) >= 3:
+                        anchor_id = int(op[1])
+                        new_ref = op[2]
+                        if anchor_id in order:
+                            style_donor = slides_by_id.get(order[-1])
+                            needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            new_slide = prs.slides.add_slide(layout)
+                            new_sid = int(new_slide.slide_id)
+
+                            sldIdLst = prs.slides._sldIdLst
+                            new_sldId = sldIdLst[-1]
+                            try:
+                                anchor_pos = order.index(anchor_id)
+                                sldIdLst.remove(new_sldId)
+                                sldIdLst.insert(anchor_pos, new_sldId)
+                            except Exception:
+                                pass
+
+                            order.insert(order.index(anchor_id), new_sid)
+                            slides_by_id[new_sid] = new_slide
+                            new_refs[new_ref] = new_sid
+
+                    elif kind == "delete_slide" and len(op) >= 2:
+                        sid = int(op[1])
+                        if sid in order:
+                            i = order.index(sid)
+                            sldIdLst = prs.slides._sldIdLst
+                            rId = sldIdLst[i].rId
+                            prs.part.drop_rel(rId)
+                            del sldIdLst[i]
+                            order.pop(i)
+                            slides_by_id.pop(sid, None)   		 
+      		
+                for target, new_text in edit_items:
+                    if not isinstance(target, str):
+                        continue
+                    t = target.strip()
+                    m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
+                    if m:
+                        slide_id = int(m.group(1))
+                        shape_id = int(m.group(2))
+                        slide = slides_by_id.get(slide_id)
+                        if not slide:
+                            continue
+                        shape = shape_by_id(slide, shape_id)
+                        if not shape:
+                            continue
+                        _set_text_with_runs(shape, new_text)
+                        continue
+                    m = re.match(r"^(n\d+):slot:(title|body)$", t, flags=re.I)
+                    if m:
+                        ref = m.group(1)
+                        slot = m.group(2).lower()
+                        sid = new_refs.get(ref)
+                        if not sid:
+                            continue
+                        slide = slides_by_id.get(sid)
+                        if not slide:
+                            continue
+                        shape = ensure_slot_textbox(slide, slot)
+                        tf = getattr(shape, "text_frame", None)
+                        if tf is None:
+                            continue
+                        if isinstance(new_text, list):
+                            tf.clear()
+                            tf.text = str(new_text[0]) if new_text else ""
+                            for line in new_text[1:]:
+                                p = tf.add_paragraph()
+                                p.text = str(line)
+                                try:
+                                    p.level = getattr(tf.paragraphs[0], "level", 0)
+                                except Exception:
+                                    pass
+                        else:
+                            tf.text = str(new_text)
+                        continue
+ 
+
+                edited_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_edited.pptx"
+                )
+                prs.save(edited_path)
+                response = upload_file(
+                    file_path=edited_path,
+                    filename=f"{os.path.splitext(file_name)[0]}_edited",
+                    file_type="pptx", 
+                    token=user_token
+                )
+            except Exception as e:
+                raise Exception(f"Error during PPTX editing: {e}")
+
+        else:
+            raise Exception(f"File type not supported: {file_type}")
+
+        shutil.rmtree(temp_folder, ignore_errors=True)
+
+        return response
+
+    except Exception as e:
+        shutil.rmtree(temp_folder, ignore_errors=True)
+        return json.dumps(
+            {"error": {"message": str(e)}},
+            indent=4,
+            ensure_ascii=False
+        )
+
+def _get_pptx_namespaces():
+    """Returns XML namespaces for PowerPoint"""
+    return {
+        'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+        'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+        'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        'p15': 'http://schemas.microsoft.com/office/powerpoint/2012/main',
+        'p14': 'http://schemas.microsoft.com/office/powerpoint/2010/main'
+    }
+
+def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, x=100, y=100):
+    """
+    Add a native PowerPoint comment by directly manipulating the ZIP file.
+        Args:
+        pptx_path: Path to the PPTX file
+        slide_num: Slide number (1-based)
+        comment_text: Comment text
+        author_id: Author ID
+        x: X position in EMU (not pixels!)
+        y: Y position in EMU (not pixels!)
+    """
+    namespaces = _get_pptx_namespaces()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        
+        with zipfile.ZipFile(pptx_path, 'r') as zf:
+            zf.extractall(temp_path)
+        
+        authors_file = temp_path / 'ppt' / 'commentAuthors.xml'
+        if authors_file.exists():
+            root = etree.parse(str(authors_file)).getroot()
+            found = False
+            for author in root.findall('.//p:cmAuthor', namespaces):
+                if author.get('name') == 'AI Reviewer':
+                    author_id = int(author.get('id'))
+                    found = True
+                    break
+            
+            if not found:
+                existing_ids = [int(a.get('id')) for a in root.findall('.//p:cmAuthor', namespaces)]
+                author_id = max(existing_ids) + 1 if existing_ids else 0
+                author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
+                author.set('id', str(author_id))
+                author.set('name', 'AI Reviewer')
+                author.set('initials', 'AI')
+                author.set('lastIdx', '1')
+                author.set('clrIdx', str(author_id % 8))
+        else:
+            authors_file.parent.mkdir(parents=True, exist_ok=True)
+            root = etree.Element(
+                f'{{{namespaces["p"]}}}cmAuthorLst',
+                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
+            )
+            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
+            author.set('id', str(author_id))
+            author.set('name', 'AI Reviewer')
+            author.set('initials', 'AI')
+            author.set('lastIdx', '1')
+            author.set('clrIdx', '0')
+            
+            rels_file = temp_path / 'ppt' / '_rels' / 'presentation.xml.rels'
+            if rels_file.exists():
+                rels_root = etree.parse(str(rels_file)).getroot()
+                existing_ids = [int(rel.get('Id')[3:]) for rel in rels_root.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')]
+                next_rid = max(existing_ids) + 1 if existing_ids else 1
+                
+                rel = etree.SubElement(rels_root, '{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')
+                rel.set('Id', f'rId{next_rid}')
+                rel.set('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors')
+                rel.set('Target', 'commentAuthors.xml')
+                
+                with open(rels_file, 'wb') as f:
+                    f.write(etree.tostring(rels_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        with open(authors_file, 'wb') as f:
+            f.write(etree.tostring(root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        comments_dir = temp_path / 'ppt' / 'comments'
+        comments_dir.mkdir(parents=True, exist_ok=True)
+        comment_file = comments_dir / f'comment{slide_num}.xml'
+        
+        if comment_file.exists():
+            comments_root = etree.parse(str(comment_file)).getroot()
+        else:
+            comments_root = etree.Element(
+                f'{{{namespaces["p"]}}}cmLst',
+                nsmap={k: v for k, v in namespaces.items() if k in ['p']}
+            )
+            
+            slide_rels_file = temp_path / 'ppt' / 'slides' / '_rels' / f'slide{slide_num}.xml.rels'
+            if slide_rels_file.exists():
+                slide_rels_root = etree.parse(str(slide_rels_file)).getroot()
+            else:
+                slide_rels_file.parent.mkdir(parents=True, exist_ok=True)
+                slide_rels_root = etree.Element(
+                    '{http://schemas.openxmlformats.org/package/2006/relationships}Relationships'
+                )
+            
+            existing_ids = [int(rel.get('Id')[3:]) for rel in slide_rels_root.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')]
+            next_rid = max(existing_ids) + 1 if existing_ids else 1
+            
+            rel = etree.SubElement(slide_rels_root, '{http://schemas.openxmlformats.org/package/2006/relationships}Relationship')
+            rel.set('Id', f'rId{next_rid}')
+            rel.set('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments')
+            rel.set('Target', f'../comments/comment{slide_num}.xml')
+            
+            with open(slide_rels_file, 'wb') as f:
+                f.write(etree.tostring(slide_rels_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        existing_ids = [int(c.get('idx')) for c in comments_root.findall('.//p:cm', namespaces)]
+        next_id = max(existing_ids) + 1 if existing_ids else 1
+        
+        comment = etree.SubElement(comments_root, f'{{{namespaces["p"]}}}cm')
+        comment.set('authorId', str(author_id))
+        comment.set('dt', datetime.datetime.now().isoformat())
+        comment.set('idx', str(next_id))
+        
+        pos = etree.SubElement(comment, f'{{{namespaces["p"]}}}pos')
+        pos.set('x', str(int(x)))
+        pos.set('y', str(int(y)))
+        
+        text_elem = etree.SubElement(comment, f'{{{namespaces["p"]}}}text')
+        text_elem.text = comment_text
+        
+        with open(comment_file, 'wb') as f:
+            f.write(etree.tostring(comments_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        content_types_file = temp_path / '[Content_Types].xml'
+        if content_types_file.exists():
+            ct_root = etree.parse(str(content_types_file)).getroot()
+            ns = {'ct': 'http://schemas.openxmlformats.org/package/2006/content-types'}
+            
+            has_authors = False
+            has_comments = False
+            
+            for override in ct_root.findall('.//ct:Override', ns):
+                if override.get('PartName') == '/ppt/commentAuthors.xml':
+                    has_authors = True
+                if override.get('PartName') == f'/ppt/comments/comment{slide_num}.xml':
+                    has_comments = True
+            
+            if not has_authors:
+                override = etree.SubElement(ct_root, '{http://schemas.openxmlformats.org/package/2006/content-types}Override')
+                override.set('PartName', '/ppt/commentAuthors.xml')
+                override.set('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml')
+            
+            if not has_comments:
+                override = etree.SubElement(ct_root, '{http://schemas.openxmlformats.org/package/2006/content-types}Override')
+                override.set('PartName', f'/ppt/comments/comment{slide_num}.xml')
+                override.set('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.comments+xml')
+            
+            with open(content_types_file, 'wb') as f:
+                f.write(etree.tostring(ct_root, xml_declaration=True, encoding='UTF-8', pretty_print=True))
+        
+        with zipfile.ZipFile(pptx_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in temp_path.rglob('*'):
+                if file_path.is_file():
+                    arcname = str(file_path.relative_to(temp_path))
+                    zf.write(file_path, arcname)
+        
+        log.debug(f"Native comment added to slide {slide_num} with idx={next_id}")
+
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
     description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
-def review_document(
+async def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    review_comments: list[tuple[int | str, str]],
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
     Generic document review function that works with different document types.
     File type is automatically detected from the file extension.
     Returns a markdown hyperlink for downloading the reviewed document.
-    For Excel files (.xlsx), the index must always be a cell reference (e.g. "A1", "B3", "C10"),
-    corresponding to the "index" key returned by the full_context_document() function.
-    Never use integer values for Excel cells.
+    
+    For Excel files (.xlsx):
+    - The index must be a cell reference (e.g. "A1", "B3", "C10")
+    - These correspond to the "index" key returned by the full_context_document() function
+    - Never use integer values for Excel cells
+    
+    For Word files (.docx):
+    - The index should be a paragraph ID in the format "pid:<para_xml_id>"
+    - These correspond to the "id_key" field returned by the full_context_document() function
+    
+    For PowerPoint files (.pptx):
+    - The index should be a slide ID in the format "sid:<slide_id>"
+    - These correspond to the "id_key" field returned by the full_context_document() function
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
     try:
-        user_file = download_file(file_id)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header")
+        user_token=TOKEN    
+    try:
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -1503,6 +2435,15 @@ def review_document(
             try:
                 doc = Document(user_file)
                 paragraphs = list(doc.paragraphs)
+                para_by_xml_id = {}
+                para_id_counter = 1
+                
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    para_by_xml_id[para_id_counter] = para
+                    para_id_counter += 1
 
                 for index, comment_text in review_comments:
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
@@ -1517,6 +2458,33 @@ def review_document(
                                 )
                             except Exception:
                                 para.add_run(f"  [AI Comment: {comment_text}]")
+                    elif isinstance(index, str) and index.startswith("pid:"):
+                        try:
+                            para_xml_id = int(index.split(":")[1])
+                            para = para_by_xml_id.get(para_xml_id)
+                            if para and para.runs:
+                                try:
+                                    doc.add_comment(
+                                        runs=[para.runs[0]],
+                                        text=comment_text,
+                                        author="AI Reviewer",
+                                        initials="AI"
+                                    )
+                                except Exception:
+                                    para.add_run(f"  [AI Comment: {comment_text}]")
+                        except Exception:
+                            if isinstance(index, int) and 0 <= index < len(paragraphs):
+                                para = paragraphs[index]
+                                if para.runs:
+                                    try:
+                                        doc.add_comment(
+                                            runs=[para.runs[0]],
+                                            text=comment_text,
+                                            author="AI Reviewer",
+                                            initials="AI"
+                                        )
+                                    except Exception:
+                                        para.add_run(f"  [AI Comment: {comment_text}]")
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
                 )
@@ -1524,7 +2492,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
@@ -1557,35 +2526,102 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error: {e}")
 
         elif file_type == "pptx":
             try:
-                prs = Presentation(user_file)
-
+                temp_pptx = os.path.join(temp_folder, "temp_input.pptx")
+                with open(temp_pptx, 'wb') as f:
+                    f.write(user_file.read())
+                
+                prs = Presentation(temp_pptx)
+                slides_by_id = {int(s.slide_id): s for s in prs.slides}
+                
+                comments_by_slide = {}
+                
                 for index, comment_text in review_comments:
+                    slide_num = None
+                    slide_id = None
+                    
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
-                        slide = prs.slides[index]
-                        left = top = Inches(0.2)
-                        width = Inches(4)
-                        height = Inches(1)
-                        textbox = slide.shapes.add_textbox(left, top, width, height)
-                        text_frame = textbox.text_frame
-                        p = text_frame.add_paragraph()
-                        p.text = f"AI Reviewer: {comment_text}"
-                        p.font.size = PptPt(10)
+                        slide_num = index + 1
+                        slide_id = list(slides_by_id.keys())[index]
+                    elif isinstance(index, str):
+                        if index.startswith("sid:") and "/shid:" in index:
+                            try:
+                                slide_id = int(index.split("/")[0].replace("sid:", ""))
+                                if slide_id in slides_by_id:
+                                    slide_num = list(slides_by_id.keys()).index(slide_id) + 1
+                            except Exception as e:
+                                log.warning(f"Failed to parse shape ID: {e}")
+                        elif index.startswith("sid:"):
+                            try:
+                                slide_id = int(index.split(":")[1])
+                                if slide_id in slides_by_id:
+                                    slide_num = list(slides_by_id.keys()).index(slide_id) + 1
+                            except Exception as e:
+                                log.warning(f"Failed to parse slide ID: {e}")
+                    
+                    if slide_num and slide_id:
+                        if slide_num not in comments_by_slide:
+                            comments_by_slide[slide_num] = []
+                        
+                        shape_info = ""
+                        if "/shid:" in str(index):
+                            try:
+                                shape_id = int(str(index).split("/shid:")[1])
+                                shape_info = f"[Shape {shape_id}] "
+                            except:
+                                pass
+                        
+                        comments_by_slide[slide_num].append(f"{shape_info}{comment_text}")
+                comment_offset = 0              
+                for slide_num, comments in comments_by_slide.items():
+                    comment_start_x = 5000
+                    comment_start_y = 1000
+                    comment_spacing_y = 1500
+                    
+                    for idx, comment in enumerate(comments):
+                        try:
+                            y_position = comment_start_y + (idx * comment_spacing_y)
+                            
+                            _add_native_pptx_comment_zip(
+                                pptx_path=temp_pptx,
+                                slide_num=slide_num,
+                                comment_text=f"• {comment}",
+                                author_id=0,
+                                x=comment_start_x,
+                                y=y_position
+                            )
+                            log.debug(f"Native PowerPoint comment added to slide {slide_num} at position x={comment_start_x}, y={y_position}")
+                        except Exception as e:
+                            log.warning(f"Failed to add native comment to slide {slide_num}: {e}", exc_info=True)
+                            prs_fallback = Presentation(temp_pptx)
+                            slide = prs_fallback.slides[slide_num - 1]
+                            left = top = Inches(0.2)
+                            width = Inches(4)
+                            height = Inches(1)
+                            textbox = slide.shapes.add_textbox(left, top, width, height)
+                            text_frame = textbox.text_frame
+                            p = text_frame.add_paragraph()
+                            p.text = f"AI Reviewer: {comment}"
+                            p.font.size = PptPt(10)
+                            prs_fallback.save(temp_pptx)
 
                 reviewed_path = os.path.join(
                     temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
                 )
-                prs.save(reviewed_path)
+                shutil.copy(temp_pptx, reviewed_path)
+                
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
@@ -1606,7 +2642,7 @@ def review_document(
         )
 
 @mcp.tool()
-def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
 "{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
 "{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
@@ -1640,7 +2676,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     return {"url": result["url"]}
 
 @mcp.tool()
-def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
     log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()
@@ -1695,6 +2731,16 @@ def generate_and_archive(files_data: list[dict], archive_format: str = "zip", ar
 
     return {"url": _public_url(folder_path, archive_filename)}
 
+from sse_starlette.sse import EventSourceResponse
+
+class SimpleRequestContext:
+    def __init__(self, request):
+        self.request = request
+
+class SimpleCtx:
+    def __init__(self, request):
+        self.request_context = SimpleRequestContext(request)
+
 async def handle_sse(request: Request) -> Response:
     """Handle SSE transport for MCP - supports both GET and POST"""
     
@@ -1702,8 +2748,6 @@ async def handle_sse(request: Request) -> Response:
         try:
             message = await request.json()
             log.debug(f"Received POST message: {message}")
-            
-            from mcp.types import JSONRPCMessage
             
             response = {
                 "jsonrpc": "2.0",
@@ -1721,7 +2765,7 @@ async def handle_sse(request: Request) -> Response:
                     },
                     "serverInfo": {
                         "name": "file_export_mcp",
-                        "version": "1.0.0"
+                        "version": SCRIPT_VERSION
                     }
                 }
             elif method == "tools/list":
@@ -1729,17 +2773,68 @@ async def handle_sse(request: Request) -> Response:
                     "tools": [
                         {
                             "name": "create_file",
-                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, etc.)",
+                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, xml, py, etc.). Supports rich content including titles, paragraphs, lists, tables, images via queries, and more.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "data": {
                                         "type": "object",
-                                        "description": "File data including format, filename, content, etc."
+                                        "description": "File data configuration",
+                                        "properties": {
+                                            "format": {
+                                                "type": "string",
+                                                "enum": ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md"],
+                                                "description": "Output file format"
+                                            },
+                                            "filename": {
+                                                "type": "string",
+                                                "description": "Name of the file to create (optional, will be auto-generated if not provided)"
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "Document title (for docx, pptx, xlsx, pdf)"
+                                            },
+                                            "content": {
+                                                "description": "Content varies by format. For pdf/docx: array of objects with type/text. For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
+                                                "oneOf": [
+                                                    {"type": "array"},
+                                                    {"type": "string"}
+                                                ]
+                                            },
+                                            "slides_data": {
+                                                "type": "array",
+                                                "description": "For pptx format only: array of slide objects",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "title": {"type": "string"},
+                                                        "content": {
+                                                            "type": "array",
+                                                            "items": {"type": "string"}
+                                                        },
+                                                        "image_query": {
+                                                            "type": "string",
+                                                            "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                        },
+                                                        "image_position": {
+                                                            "type": "string",
+                                                            "enum": ["left", "right", "top", "bottom"],
+                                                            "description": "Position of the image on the slide"
+                                                        },
+                                                        "image_size": {
+                                                            "type": "string",
+                                                            "enum": ["small", "medium", "large"],
+                                                            "description": "Size of the image"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "required": ["format"]
                                     },
                                     "persistent": {
                                         "type": "boolean",
-                                        "description": "Whether to keep files permanently"
+                                        "description": "Whether to keep files permanently (default: false, files deleted after delay)"
                                     }
                                 },
                                 "required": ["data"]
@@ -1747,22 +2842,192 @@ async def handle_sse(request: Request) -> Response:
                         },
                         {
                             "name": "generate_and_archive",
-                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
+                            "description": "Generate multiple files at once and create an archive (zip, 7z, or tar.gz). Perfect for creating document packages with multiple formats.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "files_data": {
+                                    "files_data": {"type": "array", "description": "Array of file data objects"},
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Return the structure, content, and metadata of a document",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"}
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and comment on various document types (docx, xlsx, pptx)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {"type": "string", "description": "The file ID from OpenWebUI"},
+                                    "file_name": {"type": "string", "description": "The name of the file"},
+                                    "review_comments": {
                                         "type": "array",
-                                        "description": "Array of file data objects"
+                                        "description": "Array of file configurations (same structure as create_file data)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "format": {"type": "string"},
+                                                "filename": {"type": "string"},
+                                                "title": {"type": "string"},
+                                                "content": {
+                                                    "oneOf": [
+                                                        {"type": "array"},
+                                                        {"type": "string"}
+                                                    ]
+                                                },
+                                                "slides_data": {"type": "array"}
+                                            },
+                                            "required": ["format"]
+                                        }
                                     },
                                     "archive_format": {
                                         "type": "string",
-                                        "enum": ["zip", "7z", "tar.gz"]
+                                        "enum": ["zip", "7z", "tar.gz"],
+                                        "description": "Archive format (default: zip)"
                                     },
                                     "archive_name": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "Name of the archive file (without extension, timestamp will be added)"
+                                    },
+                                    "persistent": {
+                                        "type": "boolean",
+                                        "description": "Whether to keep the archive permanently"
                                     }
-                                }
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Extract and return the complete structure, content, and metadata of a document (docx, xlsx, pptx). Returns a JSON structure with indexed elements (paragraphs, headings, tables, cells, slides, images) that can be referenced for editing or review.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI file upload"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension (e.g., 'report.docx', 'data.xlsx', 'presentation.pptx')"
+                                    }
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "edit_document",
+                            "description": "Edit an existing document (docx, xlsx, pptx) using structured operations. Supports inserting/deleting elements and updating content. ALWAYS call full_context_document() first to get proper IDs and references. Preserves formatting and returns a download link for the edited file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                    "edits": {
+                                        "type": "object",
+                                        "description": "Edit operations and content changes",
+                                        "properties": {
+                                            "ops": {
+                                                "type": "array",
+                                                "description": "Structural operations (insert/delete). For PPTX: ['insert_after', slide_id, 'nK'], ['insert_before', slide_id, 'nK'], ['delete_slide', slide_id]. For DOCX: ['insert_after', para_xml_id, 'nK'], ['insert_before', para_xml_id, 'nK'], ['delete_paragraph', para_xml_id]. For XLSX: ['insert_row', 'sheet_name', row_idx], ['delete_row', 'sheet_name', row_idx], ['insert_column', 'sheet_name', col_idx], ['delete_column', 'sheet_name', col_idx]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "oneOf": [
+                                                            {"type": "string"},
+                                                            {"type": "integer"}
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "content_edits": {
+                                                "type": "array",
+                                                "description": "Content updates as [target, new_text] pairs. For PPTX: ['sid:<slide_id>/shid:<shape_id>', text], ['nK:slot:title', text], ['nK:slot:body', text]. For DOCX: ['pid:<para_xml_id>', text], ['tid:<table_xml_id>/cid:<cell_xml_id>', text], ['nK', text]. For XLSX: ['A1', value], ['B5', value]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "minItems": 2,
+                                                    "maxItems": 2,
+                                                    "items": [
+                                                        {
+                                                            "type": "string",
+                                                            "description": "Target reference (element ID or cell ref)"
+                                                        },
+                                                        {
+                                                            "description": "New content (text string or array of strings for lists)",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "array", "items": {"type": "string"}},
+                                                                {"type": "number"},
+                                                                {"type": "boolean"}
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "edits"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel files, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word/PowerPoint, use integer indices.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                    "review_comments": {
+                                        "type": "array",
+                                        "description": "Array of [index, comment_text] tuples. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index. For PowerPoint: integer slide index.",
+                                        "items": {
+                                            "type": "array",
+                                            "minItems": 2,
+                                            "maxItems": 2,
+                                            "items": [
+                                                {
+                                                    "description": "Index/reference: For Excel use cell reference (e.g., 'A1'), for Word/PowerPoint use integer",
+                                                    "oneOf": [
+                                                        {"type": "string"},
+                                                        {"type": "integer"}
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "string",
+                                                    "description": "Comment or correction text"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "review_comments"]
                             }
                         }
                     ]
@@ -1770,29 +3035,53 @@ async def handle_sse(request: Request) -> Response:
             elif method == "tools/call":
                 params = message.get("params", {})
                 tool_name = params.get("name")
-                arguments = params.get("arguments", {})
-                
+                arguments = params.get("arguments", {}) or {}
+                ctx = SimpleCtx(request)
+
                 try:
                     if tool_name == "create_file":
-                        result = create_file(**arguments)
+                        result = await create_file(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"File created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"File created successfully: {result.get('url')}"}
                             ]
                         }
+
                     elif tool_name == "generate_and_archive":
-                        result = generate_and_archive(**arguments)
+                        result = await generate_and_archive(**arguments)
                         response["result"] = {
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Archive created successfully: {result.get('url')}"
-                                }
+                                {"type": "text", "text": f"Archive created successfully: {result.get('url')}"}
                             ]
                         }
+
+                    elif tool_name == "full_context_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await full_context_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {"type": "text", "text": result}
+                            ]
+                        }
+
+                    elif tool_name == "edit_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await edit_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
+                            ]
+                        }
+
+                    elif tool_name == "review_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await review_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
+                            ]
+                        }
+
                     else:
                         response["error"] = {
                             "code": -32601,
@@ -1804,43 +3093,51 @@ async def handle_sse(request: Request) -> Response:
                         "code": -32000,
                         "message": str(e)
                     }
+            else:
+                response["error"] = {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
             
             return JSONResponse(response)
             
         except Exception as e:
             log.error(f"Error handling POST request: {e}", exc_info=True)
             return JSONResponse(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32000,
-                        "message": str(e)
-                    }
-                },
+                {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}},
                 status_code=500
             )
     
     else:
         async def event_generator():
-            async with SseServerTransport("/messages") as (read_stream, write_stream):
-                try:
-                    await mcp._mcp_server.run(
-                        read_stream,
-                        write_stream,
-                        mcp._mcp_server.create_initialization_options()
-                    )
-                except Exception as e:
-                    log.error(f"SSE Error: {e}", exc_info=True)
+            """Generator for SSE events"""
+            try:
+                yield {
+                    "event": "endpoint",
+                    "data": json.dumps({
+                        "endpoint": "/messages"
+                    })
+                }
+                
+                import asyncio
+                while True:
+                    await asyncio.sleep(15)
+                    yield {
+                        "event": "ping",
+                        "data": ""
+                    }
+                    
+            except asyncio.CancelledError:
+                log.info("SSE connection closed by client")
+                raise
+            except Exception as e:
+                log.error(f"SSE Error: {e}", exc_info=True)
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
         
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
+        return EventSourceResponse(event_generator())
 
 async def handle_messages(request: Request) -> Response:
     """Handle POST requests to /messages endpoint"""
@@ -1868,17 +3165,18 @@ app = Starlette(
 )
 
 if __name__ == "__main__":
-    import sys
+
+    mode = (os.getenv("MODE", "SSE"))
  
-    if "--sse" in sys.argv or "--http" in sys.argv:
+    if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
-        
+            
         log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
         log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
         log.info(f"SSE endpoint: http://{host}:{port}/sse")
         log.info(f"Messages endpoint: http://{host}:{port}/messages")
-        
+            
         uvicorn.run(
             app,
             host=host,
@@ -1886,6 +3184,17 @@ if __name__ == "__main__":
             access_log=False,
             log_level="info",
             use_colors=False
+        )
+    elif mode == "http":
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+        
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in http mode on http://{host}:{port}")
+        log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
+
+        mcp.run(
+            transport="streamable-http"
         )
     else:
         log.info("Starting file_export_mcp in stdio mode version {SCRIPT_VERSION}")

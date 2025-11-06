@@ -34,9 +34,11 @@ services:
       - LOCAL_SD_SAMPLE=Euler a
       - DOCS_TEMPLATE_DIR=/docs_templates
       - PEXELS_ACCESS_KEY=""
+      - OWUI_URL=http://localhost:3000
+      - JWT_TOKEN=top-secret
     ports:
-      - "8000:8000"
-      - "9004:9004" # Optional, only if you want to use the SSE HTTP server
+      - "8000:8000" #<= builtin MCPO
+      - "9004:9004" #<= SSE server
     restart: unless-stopped
     volumes:
       - /your/export-data:/output
