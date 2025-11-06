@@ -6,6 +6,11 @@
       "env": {
         "PYTHONPATH": "/rootPath"
       },
+      "client_header_forwarding": {
+        "enabled": true,
+        "whitelist": ["authorization"],
+        "debug_headers": true
+      },      
       "disabled": false,
       "autoApprove": []
     }

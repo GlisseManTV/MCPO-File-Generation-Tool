@@ -1,13 +1,36 @@
 # MCP-File-Generation-Tool – Export Files Directly from Open WebUI
 
-A lightweight, MCPO-integrated tool that lets you **generate and export real files** (PDF, Excel, PowerPoint, ZIP, etc.) directly from Open WebUI — just like ChatGPT or Claude.
+A lightweight, MCPO-integrated tool that lets you **generate, edit and review real files** (PDF, Excel, PowerPoint, Word, ZIP, etc.) directly from Open WebUI — just like ChatGPT or Claude.
 
-✅ Supports both **Python** and **Docker**  
-✅ Fully configurable  
-✅ Ready for production workflows  
+✅ Supports both **Docker** and **Python**
+✅ Fully configurable
+✅ Ready for production workflows
 ✅ Open source & MIT licensed
 
----
+## Table of Contents
+- [Quick Start](#quick-start)
+  - [Supported File Types](#supported-file-types)
+  - [Project Structure](#project-structure)
+- [Using Docker (Recommended)](#Using-docker-recommended)
+  - [For SSE - http streamable file export server](#for-sse---http-streamable-file-export-server)
+    - [Environment variables](#SSE-HTTP-env-variables)
+  - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
+    - [Environment variables](#MCPO-env-variables)
+    - [Docker Example](#docker-example)
+- [For Python Users](#for-python-users)
+  - [PYTHON EXAMPLE](#python-example)
+- [Notes](#notes)
+- [📬 Need help?](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/issues/new/choose)
+- [Quick Start for Development Versions](#quick-start-for-development-versions)
+  - [Development Workflow](#development-workflow)
+    - [Branching Strategy](#branching-strategy)
+    - [Workflow Flow](#workflow-flow)
+  - [For SSE - http streamable file export server !!New!!](#for-sse---http-streamable-file-export-server--new-)
+    - [Environment variables](#DEV-SSE-HTTP-env-variables)
+  - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
+    - [Environment variables](#DEV-MCPO-env-variables)
+    - [DOCKER EXAMPLE](#dev-docker-example)
+
 
 🚀 **Create and export files easily from Open WebUI!**
 
@@ -23,17 +46,71 @@ https://github.com/user-attachments/assets/41dadef9-7981-4439-bf5f-3b82fcbaff04
 https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 
 
-# 🚀 Quick Start
+# Quick Start
 
-## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Best_Practices.md)
-## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Prompt_Examples.md)
-## How to use the tool here: [HowTo.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/HowTo.md)
+## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
+## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
+## How to use the tool here: [HowToUse.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
+## How configure the tool here : [HowToConfigure.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
 
 ---
 
-# 🐳 For Docker User (Recommended)
+## Supported File Types
 
-## For SSE - http streamable file export server !!New!!
+- ✅ `.xlsx` (Excel)
+- ✅ `.pdf` (PDF)
+- ✅ `.csv` (CSV)
+- ✅ `.pptx` (PowerPoint)
+- ✅ `.docx` (Word)
+- ✅ `.zip`n `tar.gz` and `.7z` (Archives)
+- ✅ Any other file type 
+
+---
+
+## Project Structure
+
+```
+MCPO-File-Generation-Tool/
+├── LLM_Export/
+│   ├── tools/
+│   │   ├── file_export_server.py
+│   │   └── file_export_mcp.py
+│   └── ...
+├── docker/
+│   ├── file_server/
+│   │   ├── Dockerfile.server
+│   │   ├── file_server_compose.yaml
+│   │   └── file_export_server.py
+│   ├── mcpo/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   ├── config.json
+│   │   ├── MCPO_server_compose.yaml
+│   │   └──tools/
+│   │       └── file_export_mcp.py
+│   ├── sse_http/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   ├── config.json
+│   │   ├── MCPO_server_compose.yaml
+│   │   └──tools/
+│   │       └── file_export_mcp.py
+│   └── docker-compose.yaml
+└── README.md
+```
+
+---
+
+# Using Docker (Recommended)
+
+## For SSE - http streamable file export server
+
+### This image is dedicated for entreprise grade usecases and advanced users
+### **This image has advanced features like multi user authentication, SSE or HTTP transport.**
+
+### Endpoints : 
+- SSE => /sse
+- streamable-http => /mcp
 
 Use 
 ```
@@ -41,7 +118,7 @@ docker pull ghcr.io/glissemantv/owui-file-export-server:latest
 docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
 ```
 
-### 🛠️ DOCKER ENV VARIABLES
+### SSE HTTP ENV VARIABLES
 
    - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the server's export directory) (default is `/output`) path must be mounted as a volume
@@ -61,7 +138,7 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: Token to access your OWUI instance (no default value, not mandatory)
+   - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -73,13 +150,17 @@ For OWUI-FILE-EXPORT-SERVER
 	
 ## For OWUI-MCPO (Builtin MCPO server)
 
+### This image is dedicated for novice or simple setup, more logs, more docs, etc.
+### **This image has not the multi users authentication yet**
+
+
 Use 
 ```
 docker pull ghcr.io/glissemantv/owui-file-export-server:latest
 docker pull ghcr.io/glissemantv/owui-mcpo:latest
 ```
 
-### 🛠️ DOCKER ENV VARIABLES
+### MCPO ENV VARIABLES
 
    - `MCPO_API_KEY`: Your MCPO API key (no default value, not mandatory but advised)
    - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
@@ -156,7 +237,8 @@ services:
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
       - OWUI_URL=http://localhost:8000
-      - OWUI_JWT_TOKEN=jwt-token-h
+      - OWUI_JWT_TOKEN=jwt-token-h # (only for MCPO image)
+      - MODE="sse" or "http" or empty # (only for SSE image)
     ports:
       - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
       - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
@@ -168,53 +250,8 @@ services:
 ```
 ---
 
-## 📦 Supported File Types
 
-- ✅ `.xlsx` (Excel)
-- ✅ `.pdf` (PDF)
-- ✅ `.csv` (CSV)
-- ✅ `.pptx` (PowerPoint)
-- ✅ `.docx` (Word)
-- ✅ `.zip`n `tar.gz` and `.7z` (Archives)
-- ✅ Any other file type 
-
----
-
-## 📂 Project Structure
-
-```
-MCPO-File-Generation-Tool/
-├── LLM_Export/
-│   ├── tools/
-│   │   ├── file_export_server.py
-│   │   └── file_export_mcp.py
-│   └── ...
-├── docker/
-│   ├── file_server/
-│   │   ├── Dockerfile.server
-│   │   ├── file_server_compose.yaml
-│   │   └── file_export_server.py
-│   ├── mcpo/
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   ├── config.json
-│   │   ├── MCPO_server_compose.yaml
-│   │   └──tools/
-│   │       └── file_export_mcp.py
-│   ├── sse_http/
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   ├── config.json
-│   │   ├── MCPO_server_compose.yaml
-│   │   └──tools/
-│   │       └── file_export_mcp.py
-│   └── docker-compose.yaml
-└── README.md
-```
-
----
-
-## 📌 Notes
+## Notes
 
 - File output paths must match between `file_server` and `MCPO`
 - Always use **absolute paths** for volume mounts
@@ -240,7 +277,7 @@ MCPO-File-Generation-Tool/
 ```
 ---
 
-### 🔧 For Python Users
+### For Python Users
 
 1. Clone the repo:
    ```bash
@@ -350,7 +387,7 @@ MIT License – Feel free to use, modify, and distribute.
 
 ---
 
-## 🌟 Credits
+## Credits
 
 A big thank you to the contributors and open-source projects that made this work possible:
 
@@ -358,7 +395,9 @@ A big thank you to the contributors and open-source projects that made this work
 
 - [**modelcontextprotocol/servers**](https://github.com/modelcontextprotocol/servers) for high-quality tools and architectural inspiration that guided the development of MCP servers and file generation workflows.
 
--  [**gentoorax**](https://chrislaw.me/) for close collaboration, technical rigor, and invaluable contributions to the quality and stability of this project.
+- [**gentoorax**](https://chrislaw.me/) for close collaboration, technical rigor, and invaluable contributions to the quality and stability of this project.
+
+- [**MarouaneZhani**](https://github.com/MarouaneZhani) and his colleague for deep integration and daily follow up in documents treatment
 
 Thank you to everyone for your passion, expertise, and dedication to the open-source community. 🙌
 
@@ -367,15 +406,15 @@ Thank you to everyone for your passion, expertise, and dedication to the open-so
 
 ---
 
-# 🚀 Quick Start for Development Versions
+# Quick Start for Development Versions
 
 ## Using development versions of libraries is at your own risk. Always test in a safe environment first.
 
-## 🛠️ Development Workflow
+## Development Workflow
 
 We follow a structured, Git-based release pipeline to ensure stability, transparency, and smooth deployments.
 
-### 🌿 Branching Strategy
+### Branching Strategy
 
 | Branch              | Purpose                                 | Docker Tag         |
 |---------------------|------------------------------------------|--------------------|
@@ -385,7 +424,7 @@ We follow a structured, Git-based release pipeline to ensure stability, transpar
 | `release-candidate` | Final validation before production        | `rc-latest`        |
 | `main`              | Stable, production-ready code             | `latest`           |
 
-### 🔁 Workflow Flow
+### Workflow Flow
 
 1. **Develop** → Work in the `dev` branch  
 2. **Review & Approve** → Pull request to `alpha`  
@@ -400,13 +439,17 @@ We follow a structured, Git-based release pipeline to ensure stability, transpar
 
 ## For SSE - http streamable file export server !!New!!
 
+### Endpoints : 
+SSE => /sse
+streamable-http => /mcp
+
 Use 
 ```
 docker pull ghcr.io/glissemantv/owui-file-export-server:dev-latest
 docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
 ```
 
-### 🛠️ DOCKER ENV VARIABLES
+### DEV SSE HTTP ENV VARIABLES
 
    - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the server's export directory) (default is `/output`) path must be mounted as a volume
@@ -426,7 +469,7 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: JWT token to use for authentication (no default value, not mandatory)
+   - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -444,7 +487,7 @@ docker pull ghcr.io/glissemantv/owui-file-export-server:dev-latest
 docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
 ```
 
-### 🛠️ DOCKER ENV VARIABLES
+### DEV MCPO ENV VARIABLES
 
    - `MCPO_API_KEY`: Your MCPO API key (no default value, not mandatory but advised)
    - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
@@ -475,7 +518,7 @@ For OWUI-FILE-EXPORT-SERVER
 
 ---
 
-### DOCKER EXAMPLE
+### DEV DOCKER EXAMPLE
 
 
 Here is an example of a docker run script file to run both the file export server and the MCPO server:
@@ -531,3 +574,12 @@ services:
       - file-export-server
 ```
 ---
+## ✨ Star History
+
+<a href="https://star-history.com/#glissemantv/MCPO-File-Generation-Tool&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=GlisseManTV/MCPO-File-Generation-Tool&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=GlisseManTV/MCPO-File-Generation-Tool&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=GlisseManTV/MCPO-File-Generation-Tool&type=Date" />
+  </picture>
+</a>
