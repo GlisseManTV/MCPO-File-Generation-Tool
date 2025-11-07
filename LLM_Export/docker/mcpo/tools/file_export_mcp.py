@@ -15,6 +15,7 @@ import zipfile
 import py7zr
 import logging
 import requests
+from requests import get, post
 from requests.auth import HTTPBasicAuth
 import threading
 import markdown2
@@ -30,7 +31,8 @@ from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import Pt as DocxPt
 from bs4 import BeautifulSoup, NavigableString
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from pptx import Presentation
@@ -46,7 +48,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.8.0-beta3"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -475,10 +477,10 @@ def render_html_elements(soup):
                                 response = requests.get(src)
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
-                                img = Image(img_data, width=200, height=150)
+                                img = ReportLabImage(img_data, width=200, height=150)  # ✅ CORRIGÉ
                             else:
                                 log.debug(f"Loading local image: {src}")
-                                img = Image(src, width=200, height=150)
+                                img = ReportLabImage(src, width=200, height=150)  # ✅ CORRIGÉ
                             story.append(img)
                             story.append(Spacer(1, 10))
                         except Exception as e:
@@ -1257,19 +1259,19 @@ def _create_raw_file(content: str, filename: str | None, folder_path: str | None
 
     return {"url": _public_url(folder_path, fname), "path": filepath}
 
-def upload_file(file_path: str, filename: str, file_type: str) -> dict:
+def upload_file(file_path: str, filename: str, file_type: str, token: str) -> dict:
     """
     Upload a file to OpenWebUI server.
     """
     url = f"{URL}/api/v1/files/"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
     with open(file_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, headers=headers, files=files)
+        response = post(url, headers=headers, files=files)
 
     if response.status_code != 200:
         return {"error": {"message": f'Error uploading file: {response.status_code}'}}
@@ -1278,17 +1280,18 @@ def upload_file(file_path: str, filename: str, file_type: str) -> dict:
             "file_path_download": f"[Download {filename}.{file_type}](/api/v1/files/{response.json()['id']}/content)"
         }
 
-def download_file(file_id: str) -> BytesIO:
+def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
+   
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
-        'Authorization': f'Bearer {TOKEN}',
+        'Authorization': token,
         'Accept': 'application/json'
     }
     
-    response = requests.get(url, headers=headers)
+    response = get(url, headers=headers)
     
     if response.status_code != 200:
         return {"error": {"message": f'Error downloading the file: {response.status_code}'}}
@@ -1296,7 +1299,7 @@ def download_file(file_id: str) -> BytesIO:
         return BytesIO(response._content)
 
 def _extract_paragraph_style_info(para):
-    """Extrait les informations de style détaillées d'un paragraphe"""
+    """Extract detailed style information from a paragraph"""
     if not para.runs:
         return {}
     
@@ -1311,7 +1314,7 @@ def _extract_paragraph_style_info(para):
     }
 
 def _extract_cell_style_info(cell):
-    """Extrait les informations de style d'une cellule"""
+    """Extract style information from a cell"""
     return {
         "style": cell.style.name if hasattr(cell, 'style') else None,
         "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
@@ -1410,9 +1413,11 @@ def _apply_run_formatting(run, format_dict):
     description="Return the structure, content, and metadata of a document based on its type (docx, xlsx, pptx). Unified output format with index, type, style, and text."
 )
 
-def full_context_document(
+async def full_context_document(
     file_id: str,
-    file_name: str
+    file_name: str,
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1420,8 +1425,18 @@ def full_context_document(
     Returns:
         dict: A JSON object with the structure of the document.
     """
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹNo forwarded headers, using admin TOKEN fallback")
     try:
-        user_file = download_file(file_id)
+        user_file = download_file(file_id=file_id,token=user_token) 
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
@@ -1566,6 +1581,37 @@ def full_context_document(
                         })
                         continue
 
+                    # --- NEW: table extraction ---
+                    if getattr(shape, "has_table", False):
+                        tbl = shape.table
+                        rows = []
+                        for r in tbl.rows:
+                            row_cells = []
+                            for c in r.cells:
+                                # collect full text
+                                if hasattr(c, "text_frame") and c.text_frame:
+                                    paras = []
+                                    for p in c.text_frame.paragraphs:
+                                        t = "".join(run.text for run in p.runs) if p.runs else p.text
+                                        t = (t or "").strip()
+                                        if t:
+                                            paras.append(t)
+                                    cell_text = "\n".join(paras)
+                                else:
+                                    cell_text = (getattr(c, "text", "") or "").strip()
+                                row_cells.append(cell_text)
+                            rows.append(row_cells)
+
+                        shape_id_val = getattr(shape, "shape_id", None) or shape._element.cNvPr.id
+                        slide_obj["shapes"].append({
+                            "shape_idx": shape_idx,
+                            "shape_id": shape_id_val,
+                            "idx_key": key,
+                            "id_key": f"sid:{int(slide.slide_id)}/shid:{int(shape_id_val)}",
+                            "kind": "table",
+                            "rows": rows  # list of lists: each inner list = one row's cell texts
+                        })
+                        continue
 
                 structure["body"].append(slide_obj)
 
@@ -1802,11 +1848,118 @@ def _collect_needs(edit_items):
             needs[ref][slot] = True
     return needs
 
+def _body_placeholder_bounds(slide):
+    """Return (left, top, width, height) for the body/content area if possible, else None."""
+    try:
+        for shp in slide.shapes:
+            phf = getattr(shp, "placeholder_format", None)
+            if phf is not None:
+                # BODY placeholder is the content region on most layouts
+                if str(getattr(phf, "type", "")).endswith("BODY"):
+                    return shp.left, shp.top, shp.width, shp.height
+    except Exception:
+        pass
+    return None
+
+def _add_table_from_matrix(slide, matrix):
+    """
+    Create a table on the slide sized to the matrix (rows x cols) and fill it.
+    The table is placed over the body placeholder bounds if available,
+    else within 1-inch margins.
+    Returns the created table shape.
+    """
+    if not isinstance(matrix, (list, tuple)) or not matrix or not isinstance(matrix[0], (list, tuple)):
+        return None
+
+    rows = len(matrix)
+    cols = len(matrix[0])
+
+    # determine placement rectangle
+    rect = _body_placeholder_bounds(slide)
+    if rect:
+        left, top, width, height = rect
+    else:
+        # safe default margins
+        left = Inches(1)
+        top = Inches(1.2)
+        # try to use slide size when available
+        try:
+            prs = slide.part.presentation
+            width = prs.slide_width - Inches(2)
+            height = prs.slide_height - Inches(2.2)
+        except Exception:
+            width = Inches(8)
+            height = Inches(4.5)
+
+    tbl_shape = slide.shapes.add_table(rows, cols, left, top, width, height)
+    table = tbl_shape.table
+
+    # fill cells
+    for r in range(rows):
+        for c in range(cols):
+            try:
+                table.cell(r, c).text = "" if matrix[r][c] is None else str(matrix[r][c])
+            except Exception:
+                pass
+
+    return tbl_shape
+
+
+def _resolve_donor_simple(order, slides_by_id, anchor_id, kind):
+    """
+    kind: 'insert_after' or 'insert_before'
+    Rules:
+      insert_after(anchor):
+        - if anchor is first -> donor = next slide if exists else anchor
+        - else               -> donor = anchor
+      insert_before(anchor):
+        - if anchor is last  -> donor = previous slide if exists else anchor
+        - else               -> donor = anchor
+    """
+    if not order:
+        return None
+    if anchor_id not in order:
+        # anchor not found
+        return slides_by_id.get(order[1]) if len(order) > 1 else slides_by_id.get(order[0])
+
+    pos = order.index(anchor_id)
+    last_idx = len(order) - 1
+
+    if kind == "insert_after":
+        if pos == 0:
+            # after first slide
+            return slides_by_id.get(order[pos + 1]) if pos + 1 <= last_idx else slides_by_id.get(anchor_id)
+        else:
+            return slides_by_id.get(anchor_id)
+
+    # insert_before
+    if pos == last_idx:
+        # before last slide
+        return slides_by_id.get(order[pos - 1]) if pos - 1 >= 0 else slides_by_id.get(anchor_id)
+    else:
+        return slides_by_id.get(anchor_id)
+
+def _set_table_from_matrix(shape, data):
+    # data = list[list[Any]]; trims to current table size
+    tbl = shape.table
+    max_r = len(tbl.rows)
+    max_c = len(tbl.columns)
+    for r, row_vals in enumerate(data):
+        if r >= max_r:
+            break
+        for c, val in enumerate(row_vals):
+            if c >= max_c:
+                break
+            tbl.cell(r, c).text = ""  # clear
+            tbl.cell(r, c).text = "" if val is None else str(val)
+
 @mcp.tool()
-def edit_document(
+async def edit_document(
     file_id: str,
     file_name: str,
-    edits: dict
+    edits: dict,
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -1822,13 +1975,20 @@ def edit_document(
 
     ### PPTX (PowerPoint)
     - ops: 
-        - ["insert_after", slide_id, "nK"]
-        - ["insert_before", slide_id, "nK"]
+        - ["insert_after", <slide_id>, "nK"]
+        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
+        - ["insert_before", <slide_id>, "nK"]
+        - ["insert_before", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:
-        - ["sid:<slide_id>/shid:<shape_id>", text_or_list]
-        - ["nK:slot:title", text_or_list]
-        - ["nK:slot:body", text_or_list]
+        - Edit a text shape
+            ["sid:<slide_id>/shid:<shape_id>", text_or_list]
+        - Edit a table
+            ["sid:<slide_id>/shid:<shape_id>", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
+        - Edit title or body or table of a newly inserted slide
+            ["nK:slot:title", text_or_list]
+            ["nK:slot:body", text_or_list]
+            ["nK:slot:table", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
 
     ### DOCX (Word)
     - ops:
@@ -1857,9 +2017,18 @@ def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
-        user_file = download_file(file_id)
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -1999,7 +2168,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX editing: {e}")
@@ -2033,7 +2203,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during XLSX editing: {e}")
@@ -2061,11 +2232,19 @@ def edit_document(
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            style_donor = slides_by_id.get(order[-1])
+                            like_sid = None
+                            if len(op) >= 4 and isinstance(op[3], dict):
+                                like_sid = op[3].get("layout_like_sid")
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
-                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+                            # style_donor selection
+                            if like_sid and like_sid in slides_by_id:
+                                style_donor = slides_by_id[like_sid]
+                            else:
+                                style_donor = _resolve_donor_simple(order, slides_by_id, anchor_id, kind)
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"]) if style_donor else prs.slide_layouts[0]
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
+
                             sldIdLst = prs.slides._sldIdLst
                             new_sldId = sldIdLst[-1]
                             try:
@@ -2078,13 +2257,24 @@ def edit_document(
                             slides_by_id[new_sid] = new_slide
                             new_refs[new_ref] = new_sid
 
+
                     elif kind == "insert_before" and len(op) >= 3:
                         anchor_id = int(op[1])
                         new_ref = op[2]
                         if anchor_id in order:
-                            style_donor = slides_by_id.get(order[-1])
+                            like_sid = None
+                            if len(op) >= 4 and isinstance(op[3], dict):
+                                like_sid = op[3].get("layout_like_sid")
+
                             needs = new_ref_needs.get(new_ref, {"title": False, "body": False})
-                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"])
+
+                            # style_donor selection
+                            if like_sid and like_sid in slides_by_id:
+                                style_donor = slides_by_id[like_sid]
+                            else:
+                                style_donor = _resolve_donor_simple(order, slides_by_id, anchor_id, kind)
+
+                            layout = _pick_layout_for_slots(prs, style_donor, needs["title"], needs["body"]) if style_donor else prs.slide_layouts[0]
                             new_slide = prs.slides.add_slide(layout)
                             new_sid = int(new_slide.slide_id)
 
@@ -2116,6 +2306,22 @@ def edit_document(
                     if not isinstance(target, str):
                         continue
                     t = target.strip()
+
+                    # >>> ADD: table edit 
+                    # target format: sid:<sid>/shid:<shid>  with new_text like [[row1...],[row2...],...]
+                    m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
+                    if m:
+                        slide_id = int(m.group(1))
+                        shape_id = int(m.group(2))
+                        slide = slides_by_id.get(slide_id)
+                        if slide:
+                            shape = shape_by_id(slide, shape_id)
+                            if shape and getattr(shape, "has_table", False) and isinstance(new_text, (list, tuple)) and new_text and isinstance(new_text[0], (list, tuple)):
+                                _set_table_from_matrix(shape, new_text)
+                                continue
+                            
+                    # <<< END ADD
+
                     m = re.match(r"^sid:(\d+)/shid:(\d+)$", t, flags=re.I)
                     if m:
                         slide_id = int(m.group(1))
@@ -2155,6 +2361,21 @@ def edit_document(
                         else:
                             tf.text = str(new_text)
                         continue
+
+                    # nK:table  (create a new table on a newly inserted slide nK)
+                    m = re.match(r"^(n\d+):slot:table$", t, flags=re.I)
+                    if m:
+                        ref = m.group(1)
+                        sid = new_refs.get(ref)
+                        if not sid:
+                            continue
+                        slide = slides_by_id.get(sid)
+                        if not slide:
+                            continue
+                        # new_text must be a 2D list
+                        if isinstance(new_text, (list, tuple)) and new_text and isinstance(new_text[0], (list, tuple)):
+                            _add_table_from_matrix(slide, new_text)
+                        continue
  
 
                 edited_path = os.path.join(
@@ -2164,7 +2385,8 @@ def edit_document(
                 response = upload_file(
                     file_path=edited_path,
                     filename=f"{os.path.splitext(file_name)[0]}_edited",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during PPTX editing: {e}")
@@ -2183,6 +2405,7 @@ def edit_document(
             indent=4,
             ensure_ascii=False
         )
+    
 def _get_pptx_namespaces():
     """Returns XML namespaces for PowerPoint"""
     return {
@@ -2349,12 +2572,14 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
 @mcp.tool(
     name="review_document",
     title="Review and comment on various document types",
-    description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments. For Excel files, use cell references (e.g. 'A1', 'B3', 'C10') as indexes. For Word and PowerPoint files, use the id_key format (e.g. 'pid:123' for paragraphs, 'sid:456' for slides) as indexes."
+    description="Review an existing document of various types (docx, xlsx, pptx), perform corrections and add comments."
 )
-def review_document(
+async def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]]
+    review_comments: list[tuple[int | str, str]],
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -2376,9 +2601,18 @@ def review_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
-        user_file = download_file(file_id)
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2449,7 +2683,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx"
+                    file_type="docx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
@@ -2482,7 +2717,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx"
+                    file_type="xlsx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error: {e}")
@@ -2575,7 +2811,8 @@ def review_document(
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx"
+                    file_type="pptx", 
+                    token=user_token
                 )
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
@@ -2596,7 +2833,7 @@ def review_document(
         )
 
 @mcp.tool()
-def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
 "{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
 "{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
@@ -2630,7 +2867,7 @@ def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     return {"url": result["url"]}
 
 @mcp.tool()
-def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
+async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
     """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
     log.debug("Generating archive via tool")
     folder_path = _generate_unique_folder()

@@ -27,7 +27,8 @@
 				"LOCAL_SD_SCHEDULER": "Karras",
 				"LOCAL_SD_SAMPLER": "Euler a", 
 				"OWUI_URL": "http://localhost:3000",
-				"JWT_TOKEN": "top-secret"
+				"JWT_TOKEN": "top-secret",
+				"MODE": "sse" or "http" or empty
 			},
 			"disabled": false,
 			"autoApprove": []
