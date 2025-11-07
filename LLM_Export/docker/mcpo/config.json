@@ -1,16 +1,13 @@
 {
   "mcpServers": {
     "file_export": {
-      "command": "python3.12",
-      "args": ["-m", "tools.file_export_mcp"],
-      "env": {
-        "PYTHONPATH": "/rootPath"
-      },
+      "command": "/app/.venv/bin/python",
+      "args": ["-m", "tools.server"],
       "client_header_forwarding": {
         "enabled": true,
         "whitelist": ["authorization"],
         "debug_headers": true
-      },      
+      },
       "disabled": false,
       "autoApprove": []
     }
