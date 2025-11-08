@@ -9,6 +9,7 @@ RUN /app/.venv/bin/python -m ensurepip --upgrade && \
 RUN mkdir -p /rootPath
 COPY config.json /rootPath
 COPY tools /rootPath/tools
+COPY utils /rootPath/utils
 COPY templates /rootPath/templates
 COPY functions /rootPath/functions
 
