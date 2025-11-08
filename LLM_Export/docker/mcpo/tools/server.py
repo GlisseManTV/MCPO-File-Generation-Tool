@@ -59,7 +59,7 @@ from utils.pptx_treatment import _resolve_donor_simple  # noqa: F401
 # Logging / Env
 # -----------------------------------------------------------------------------
 
-SCRIPT_VERSION = "1.0.0-refactor"
+SCRIPT_VERSION = "0.9.0-fc1"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -80,42 +80,78 @@ log = logging.getLogger("server")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-# OpenWebUI auth/context
-URL = os.getenv("OWUI_URL")
-TOKEN = os.getenv("JWT_SECRET")
+URL = os.getenv('OWUI_URL')
+TOKEN = os.getenv('JWT_SECRET')
 
-# Persistence / cleanup
-PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false").lower() == "true"
-FILES_DELAY = int(os.getenv("FILES_DELAY", "60"))
+PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
+FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
-# -----------------------------------------------------------------------------
-# Templates discovery (by path)
-# -----------------------------------------------------------------------------
+EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
+EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
+os.makedirs(EXPORT_DIR, exist_ok=True)
 
-DOCS_TEMPLATE_DIR = os.getenv("DOCS_TEMPLATE_DIR")
-if not DOCS_TEMPLATE_DIR:
-    # fallback to local templates directory if present
-    local_templates = os.path.join(os.getcwd(), "templates")
-    DOCS_TEMPLATE_DIR = local_templates if os.path.isdir(local_templates) else ""
+BASE_URL_ENV = os.getenv("FILE_EXPORT_BASE_URL")
+BASE_URL = (BASE_URL_ENV or "http://localhost:9003/files").rstrip("/")
 
-PPTX_TEMPLATE_PATH: Optional[str] = None
-DOCX_TEMPLATE_PATH: Optional[str] = None
-XLSX_TEMPLATE_PATH: Optional[str] = None
+LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
+LOG_FORMAT_ENV = os.getenv(
+    "LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s"
+)
 
-if DOCS_TEMPLATE_DIR and os.path.exists(DOCS_TEMPLATE_DIR):
-    log.debug(f"Template folder: {DOCS_TEMPLATE_DIR}")
-    for root, dirs, files in os.walk(DOCS_TEMPLATE_DIR):
+DOCS_TEMPLATE_PATH = os.getenv("DOCS_TEMPLATE_DIR", "/rootPath/templates")
+PPTX_TEMPLATE = None
+DOCX_TEMPLATE = None
+XLSX_TEMPLATE = None
+PPTX_TEMPLATE_PATH = None
+DOCX_TEMPLATE_PATH = None
+XLSX_TEMPLATE_PATH = None
+
+if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
+    logging.debug(f"Template Folder: {DOCS_TEMPLATE_PATH}")
+    for root, dirs, files in os.walk(DOCS_TEMPLATE_PATH):
         for file in files:
             fpath = os.path.join(root, file)
             if file.lower().endswith(".pptx") and PPTX_TEMPLATE_PATH is None:
                 PPTX_TEMPLATE_PATH = fpath
-                log.debug(f"PPTX template path: {PPTX_TEMPLATE_PATH}")
+                logging.debug(f"PPTX template: {PPTX_TEMPLATE_PATH}")
             elif file.lower().endswith(".docx") and DOCX_TEMPLATE_PATH is None:
                 DOCX_TEMPLATE_PATH = fpath
-                log.debug(f"DOCX template path: {DOCX_TEMPLATE_PATH}")
             elif file.lower().endswith(".xlsx") and XLSX_TEMPLATE_PATH is None:
                 XLSX_TEMPLATE_PATH = fpath
-                log.debug(f"XLSX template path: {XLSX_TEMPLATE_PATH}")
+    if PPTX_TEMPLATE_PATH:
+        try:
+            PPTX_TEMPLATE = Presentation(PPTX_TEMPLATE_PATH)
+            logging.debug(f"Using PPTX template: {PPTX_TEMPLATE_PATH}")
+        except Exception as e:
+            logging.warning(f"PPTX template failed to load : {e}")
+            PPTX_TEMPLATE = None
+    else:
+        logging.debug("No PPTX template found. Creation of a blank document.")
+        PPTX_TEMPLATE = None
+
+    if DOCX_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
+        try:
+            DOCX_TEMPLATE = Document(DOCX_TEMPLATE_PATH)
+            logging.debug(f"Using DOCX template: {DOCX_TEMPLATE_PATH}")
+        except Exception as e:
+            logging.warning(f"DOCX template failed to load : {e}")
+            DOCX_TEMPLATE = None
+    else:
+        logging.debug("No DOCX template found. Creation of a blank document.")
+        DOCX_TEMPLATE = None
+    
+    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
+
+    if XLSX_TEMPLATE_PATH:
+        try:
+            XLSX_TEMPLATE = load_workbook(XLSX_TEMPLATE_PATH)
+            logging.debug(f"Using XLSX template: {XLSX_TEMPLATE_PATH}")
+        except Exception as e:
+            logging.warning(f"Failed to load XLSX template: {e}")
+            XLSX_TEMPLATE = None
+    else:
+        logging.debug("No XLSX template found. Creation of a blank document.")
+        XLSX_TEMPLATE = None
 
 # -----------------------------------------------------------------------------
 # MCP server
