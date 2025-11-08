@@ -374,10 +374,10 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
         else:
             authors_file.parent.mkdir(parents=True, exist_ok=True)
             root = etree.Element(
-                f'{{{namespaces["p"]} }}cmAuthorLst',
+                f'{{{namespaces["p"]}}}cmAuthorLst',
                 nsmap={k: v for k, v in namespaces.items() if k in ['p']}
             )
-            author = etree.SubElement(root, f'{{{namespaces["p"]} }}cmAuthor')
+            author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
             author.set('id', str(author_id))
             author.set('name', 'AI Reviewer')
             author.set('initials', 'AI')
@@ -415,7 +415,7 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
             comments_root = etree.parse(str(comment_file)).getroot()
         else:
             comments_root = etree.Element(
-                f'{{{namespaces["p"]} }}cmLst',
+                f'{{{namespaces["p"]}}}cmLst',
                 nsmap={k: v for k, v in namespaces.items() if k in ['p']}
             )
             
@@ -442,16 +442,16 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
         existing_ids = [int(c.get('idx')) for c in comments_root.findall('.//p:cm', namespaces)]
         next_id = max(existing_ids) + 1 if existing_ids else 1
         
-        comment = etree.SubElement(comments_root, f'{{{namespaces["p"]} }}cm')
+        comment = etree.SubElement(comments_root, f'{{{namespaces["p"]}}}cm')
         comment.set('authorId', str(author_id))
         comment.set('dt', datetime.datetime.now().isoformat())
         comment.set('idx', str(next_id))
         
-        pos = etree.SubElement(comment, f'{{{namespaces["p"]} }}pos')
+        pos = etree.SubElement(comment, f'{{{namespaces["p"]}}}pos')
         pos.set('x', str(int(x)))
         pos.set('y', str(int(y)))
         
-        text_elem = etree.SubElement(comment, f'{{{namespaces["p"]} }}text')
+        text_elem = etree.SubElement(comment, f'{{{namespaces["p"]}}}text')
         text_elem.text = comment_text
         
         with open(comment_file, 'wb') as f:
