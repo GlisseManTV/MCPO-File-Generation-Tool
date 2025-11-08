@@ -734,7 +734,8 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
-    ctx: Context[ServerSession, None]
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -756,16 +757,18 @@ async def review_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        logging.info(f"Recieved authorization header!")
-        user_token=bearer_token
-    except:
-        logging.error(f"Error retrieving authorization header use admin fallback")
-        user_token=TOKEN
-    try:
-        user_file = download_file(file_id=file_id, token=user_token)
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 

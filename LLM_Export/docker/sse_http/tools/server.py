@@ -1091,13 +1091,17 @@ async def review_document(
 
 @mcp.tool()
 async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
-    """ "{"data": {"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."}}
-"{"data": {"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."}}"
-"{"data": {"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."}}"
-"{"data": {"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."}}"
-"{"data": {"format":"csv","filename":"data.csv","content":[[...]]}}"
-"{"data": {"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}}" """
-    log.debug("Creating file via tool")
+    """
+    Create a single file based on 'data' description.
+    data examples:
+      {"format":"pdf","filename":"report.pdf","content":[...]}
+      {"format":"docx","filename":"doc.docx","content":[...],"title":"..."}
+      {"format":"pptx","filename":"slides.pptx","slides_data":[...],"title":"..."}
+      {"format":"xlsx","filename":"data.xlsx","content":[[...]],"title":"..."}
+      {"format":"csv","filename":"data.csv","content":[[...]]}
+      {"format":"txt|xml|py|...","filename":"file.ext","content":"string"}
+    """
+    log.debug("Creating file via tool (server.py)")
     folder_path = _generate_unique_folder()
     format_type = (data.get("format") or "").lower()
     filename = data.get("filename")
@@ -1105,13 +1109,31 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     title = data.get("title")
 
     if format_type == "pdf":
-        result = _create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
+        result = create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
     elif format_type == "pptx":
-        result = _create_presentation(data.get("slides_data", []), filename, folder_path=folder_path, title=title)
+        result = create_presentation(
+            data.get("slides_data", []),
+            filename,
+            folder_path=folder_path,
+            title=title,
+            pptx_template_path=PPTX_TEMPLATE_PATH,
+        )
     elif format_type == "docx":
-        result = _create_word(content if content is not None else [], filename, folder_path=folder_path, title=title)
+        result = create_word(
+            content if content is not None else [],
+            filename,
+            folder_path=folder_path,
+            title=title,
+            docx_template_path=DOCX_TEMPLATE_PATH,
+        )
     elif format_type == "xlsx":
-        result = _create_excel(content if content is not None else [], filename, folder_path=folder_path, title=title)
+        result = create_excel(
+            content if content is not None else [],
+            filename,
+            folder_path=folder_path,
+            title=title,
+            xlsx_template_path=XLSX_TEMPLATE_PATH if "xlsx_template_path" in create_excel.__code__.co_varnames else None,  # type: ignore
+        )
     elif format_type == "csv":
         result = _create_csv(content if content is not None else [], filename, folder_path=folder_path)
     else:
@@ -1123,10 +1145,20 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
 
     return {"url": result["url"]}
 
+
 @mcp.tool()
-async def generate_and_archive(files_data: list[dict], archive_format: str = "zip", archive_name: str = None, persistent: bool = PERSISTENT_FILES) -> dict:
-    """files_data=[{"format":"pdf","filename":"report.pdf","content":[{"type":"title","text":"..."},{"type":"paragraph","text":"..."}],"title":"..."},{"format":"docx","filename":"doc.docx","content":[{"type":"title","text":"..."},{"type":"list","items":[...]}],"title":"..."},{"format":"pptx","filename":"slides.pptx","slides_data":[{"title":"...","content":[...],"image_query":"...","image_position":"left|right|top|bottom","image_size":"small|medium|large"}],"title":"..."},{"format":"xlsx","filename":"data.xlsx","content":[["Header1","Header2"],["Val1","Val2"]],"title":"..."},{"format":"csv","filename":"data.csv","content":[[...]]},{"format":"txt|xml|py|etc","filename":"file.ext","content":"string"}]"""
-    log.debug("Generating archive via tool")
+async def generate_and_archive(
+    files_data: list[dict],
+    archive_format: str = "zip",
+    archive_name: str | None = None,
+    persistent: bool = PERSISTENT_FILES
+) -> dict:
+    """
+    Generate multiple files then archive them.
+    files_data: list of 'data' dicts (same shape as for create_file)
+    archive_format: zip | 7z | tar.gz
+    """
+    log.debug("Generating archive via tool (server.py)")
     folder_path = _generate_unique_folder()
     generated_paths: list[str] = []
 
@@ -1135,16 +1167,33 @@ async def generate_and_archive(files_data: list[dict], archive_format: str = "zi
         fname = file_info.get("filename")
         content = file_info.get("content")
         title = file_info.get("title")
-
         try:
             if fmt == "pdf":
-                res = _create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)
+                res = create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)
             elif fmt == "pptx":
-                res = _create_presentation(file_info.get("slides_data", []), fname, folder_path=folder_path, title=title)
+                res = create_presentation(
+                    file_info.get("slides_data", []),
+                    fname,
+                    folder_path=folder_path,
+                    title=title,
+                    pptx_template_path=PPTX_TEMPLATE_PATH,
+                )
             elif fmt == "docx":
-                res = _create_word(content if content is not None else [], fname, folder_path=folder_path, title=title)
+                res = create_word(
+                    content if content is not None else [],
+                    fname,
+                    folder_path=folder_path,
+                    title=title,
+                    docx_template_path=DOCX_TEMPLATE_PATH,
+                )
             elif fmt == "xlsx":
-                res = _create_excel(content if content is not None else [], fname, folder_path=folder_path, title=title)
+                res = create_excel(
+                    content if content is not None else [],
+                    fname,
+                    folder_path=folder_path,
+                    title=title,
+                    xlsx_template_path=XLSX_TEMPLATE_PATH if "xlsx_template_path" in create_excel.__code__.co_varnames else None,  # type: ignore
+                )
             elif fmt == "csv":
                 res = _create_csv(content if content is not None else [], fname, folder_path=folder_path)
             else:
@@ -1153,16 +1202,21 @@ async def generate_and_archive(files_data: list[dict], archive_format: str = "zi
         except Exception as e:
             log.error(f"Error generating file {fname or '<no name>'}: {e}", exc_info=True)
             raise
-
         generated_paths.append(res["path"])
 
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_basename = f"{archive_name or 'archive'}_{timestamp}"
-    archive_filename = f"{archive_basename}.zip" if archive_format.lower() not in ("7z", "tar.gz") else f"{archive_basename}.{archive_format}"
+    if archive_format.lower() == "7z":
+        archive_filename = f"{archive_basename}.7z"
+    elif archive_format.lower() == "tar.gz":
+        archive_filename = f"{archive_basename}.tar.gz"
+    else:
+        archive_filename = f"{archive_basename}.zip"
+
     archive_path = os.path.join(folder_path, archive_filename)
 
     if archive_format.lower() == "7z":
-        with py7zr.SevenZipFile(archive_path, mode='w') as archive:
+        with py7zr.SevenZipFile(archive_path, mode="w") as archive:
             for p in generated_paths:
                 archive.write(p, os.path.relpath(p, folder_path))
     elif archive_format.lower() == "tar.gz":
@@ -1170,7 +1224,7 @@ async def generate_and_archive(files_data: list[dict], archive_format: str = "zi
             for p in generated_paths:
                 tar.add(p, arcname=os.path.relpath(p, folder_path))
     else:
-        with zipfile.ZipFile(archive_path, 'w') as zipf:
+        with zipfile.ZipFile(archive_path, "w") as zipf:
             for p in generated_paths:
                 zipf.write(p, os.path.relpath(p, folder_path))
 
