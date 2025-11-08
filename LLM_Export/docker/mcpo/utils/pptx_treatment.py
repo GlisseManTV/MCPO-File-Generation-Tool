@@ -365,7 +365,7 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
             if not found:
                 existing_ids = [int(a.get('id')) for a in root.findall('.//p:cmAuthor', namespaces)]
                 author_id = max(existing_ids) + 1 if existing_ids else 0
-                author = etree.SubElement(root, f'{{{namespaces["p"]} }}cmAuthor')
+                author = etree.SubElement(root, f'{{{namespaces["p"]}}}cmAuthor')
                 author.set('id', str(author_id))
                 author.set('name', 'AI Reviewer')
                 author.set('initials', 'AI')
