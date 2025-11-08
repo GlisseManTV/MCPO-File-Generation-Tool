@@ -48,7 +48,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.9.0-dev1"
+SCRIPT_VERSION = "0.8.0-rc2"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
@@ -1975,8 +1975,10 @@ async def edit_document(
 
     ### PPTX (PowerPoint)
     - ops: 
+        - ["insert_after", <slide_id>, "nK"]
         - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
-        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
+        - ["insert_before", <slide_id>, "nK"]
+        - ["insert_before", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:
         - Edit a text shape
