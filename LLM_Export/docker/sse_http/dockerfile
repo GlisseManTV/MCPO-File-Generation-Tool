@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir \
 
 COPY config.json /rootPath
 COPY tools /rootPath/tools
+COPY utils /rootPath/utils
 COPY templates /rootPath/templates
 COPY functions /rootPath/functions
 
@@ -35,4 +36,4 @@ RUN mkdir -p /rootPath/output
 
 EXPOSE 9004
 
-CMD ["python", "/rootPath/tools/file_export_mcp.py", "--no-color"]
+CMD ["python", "/rootPath/tools/server.py", "--no-color"]

@@ -14,10 +14,14 @@ from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.session import ServerSession
 
 from docx import Document
+from docx.shared import Inches
 from openpyxl import load_workbook
 from pptx import Presentation
+from pptx.util import Inches
+from pptx.util import Pt as PptPt
 
-# Utils public API (centralised file ops + generators + helpers)
+
+
 from utils import (
     # generators
     create_presentation,
@@ -52,12 +56,7 @@ from utils import (
     _apply_run_formatting,
     _extract_paragraph_style_info,
 )
-# Helper not exported via __all__: import directly from module
-from utils.pptx_treatment import _resolve_donor_simple  # noqa: F401
-
-# -----------------------------------------------------------------------------
-# Logging / Env
-# -----------------------------------------------------------------------------
+from utils.pptx_treatment import _resolve_donor_simple
 
 SCRIPT_VERSION = "0.9.0-fc1"
 
@@ -735,54 +734,62 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
-    mcpo_headers: dict | None = None,
-    ctx: Context[ServerSession, None] | None = None
+    ctx: Context[ServerSession, None]
 ) -> dict:
     """
-    Review a document and add comments/notes.
-    DOCX: add comments (fallback to inline text if lib does not support).
-    XLSX: add sized comments using add_auto_sized_review_comment.
-    PPTX: add native comments using _add_native_pptx_comment_zip (fallback textbox).
+    Generic document review function that works with different document types.
+    File type is automatically detected from the file extension.
+    Returns a markdown hyperlink for downloading the reviewed document.
+    
+    For Excel files (.xlsx):
+    - The index must be a cell reference (e.g. "A1", "B3", "C10")
+    - These correspond to the "index" key returned by the full_context_document() function
+    - Never use integer values for Excel cells
+    
+    For Word files (.docx):
+    - The index should be a paragraph ID in the format "pid:<para_xml_id>"
+    - These correspond to the "id_key" field returned by the full_context_document() function
+    
+    For PowerPoint files (.pptx):
+    - The index should be a slide ID in the format "sid:<slide_id>"
+    - These correspond to the "id_key" field returned by the full_context_document() function
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
 
-    user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
-        if auth_header:
-            user_token = auth_header
-            log.info("Using authorization from MCPO forwarded headers")
-        else:
-            log.warning("Forwarded headers present but no authorization found")
-    else:
-        log.info("No forwarded headers, using admin TOKEN fallback")
-
     try:
-        user_file = download_file(file_id, token=user_token)
+        bearer_token = ctx.request_context.request.headers.get("authorization")
+        logging.info(f"Recieved authorization header!")
+        user_token=bearer_token
+    except:
+        logging.error(f"Error retrieving authorization header use admin fallback")
+        user_token=TOKEN
+    try:
+        user_file = download_file(file_id=file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
         file_extension = os.path.splitext(file_name)[1].lower()
         file_type = file_extension.lstrip('.')
 
-        response: dict | None = None
+        reviewed_path = None
+        response = None
 
         if file_type == "docx":
             try:
                 doc = Document(user_file)
                 paragraphs = list(doc.paragraphs)
-
-                para_by_xml_id: dict[int, Any] = {}
+                para_by_xml_id = {}
                 para_id_counter = 1
+                
                 for para in doc.paragraphs:
-                    text = (para.text or "").strip()
+                    text = para.text.strip()
                     if not text:
                         continue
                     para_by_xml_id[para_id_counter] = para
                     para_id_counter += 1
 
-                for index, comment_text in review_comments or []:
+                for index, comment_text in review_comments:
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
                         if para.runs:
@@ -791,7 +798,7 @@ async def review_document(
                                     runs=[para.runs[0]],
                                     text=comment_text,
                                     author="AI Reviewer",
-                                    initials="AI",
+                                    initials="AI"
                                 )
                             except Exception:
                                 para.add_run(f"  [AI Comment: {comment_text}]")
@@ -805,22 +812,33 @@ async def review_document(
                                         runs=[para.runs[0]],
                                         text=comment_text,
                                         author="AI Reviewer",
-                                        initials="AI",
+                                        initials="AI"
                                     )
                                 except Exception:
                                     para.add_run(f"  [AI Comment: {comment_text}]")
                         except Exception:
-                            pass
-
-                reviewed_path = os.path.join(temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx")
+                            if isinstance(index, int) and 0 <= index < len(paragraphs):
+                                para = paragraphs[index]
+                                if para.runs:
+                                    try:
+                                        doc.add_comment(
+                                            runs=[para.runs[0]],
+                                            text=comment_text,
+                                            author="AI Reviewer",
+                                            initials="AI"
+                                        )
+                                    except Exception:
+                                        para.add_run(f"  [AI Comment: {comment_text}]")
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.docx"
+                )
                 doc.save(reviewed_path)
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="docx",
-                    token=user_token,
+                    file_type="docx", 
+                    token=user_token
                 )
-
             except Exception as e:
                 raise Exception(f"Error during DOCX revision: {e}")
 
@@ -828,7 +846,8 @@ async def review_document(
             try:
                 wb = load_workbook(user_file)
                 ws = wb.active
-                for index, comment_text in review_comments or []:
+
+                for index, comment_text in review_comments:
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
@@ -836,38 +855,42 @@ async def review_document(
                             cell_ref = f"A{index+1}"
                         else:
                             cell_ref = "A1"
+
                         cell = ws[cell_ref]
                         add_auto_sized_review_comment(cell, comment_text, author="AI Reviewer")
-                    except Exception:
-                        add_auto_sized_review_comment(ws["A1"], comment_text, author="AI Reviewer")
 
-                reviewed_path = os.path.join(temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.xlsx")
+                    except Exception:
+                        fallback_cell = ws["A1"]
+                        add_auto_sized_review_comment(fallback_cell, comment_text, author="AI Reviewer")
+
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.xlsx"
+                )
                 wb.save(reviewed_path)
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="xlsx",
-                    token=user_token,
+                    file_type="xlsx", 
+                    token=user_token
                 )
-
             except Exception as e:
-                raise Exception(f"Error during XLSX revision: {e}")
+                raise Exception(f"Error: {e}")
 
         elif file_type == "pptx":
             try:
                 temp_pptx = os.path.join(temp_folder, "temp_input.pptx")
-                with open(temp_pptx, "wb") as f:
+                with open(temp_pptx, 'wb') as f:
                     f.write(user_file.read())
-
+                
                 prs = Presentation(temp_pptx)
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
-
-                comments_by_slide: dict[int, list[str]] = {}
-
-                for index, comment_text in review_comments or []:
-                    slide_num: Optional[int] = None
-                    slide_id: Optional[int] = None
-
+                
+                comments_by_slide = {}
+                
+                for index, comment_text in review_comments:
+                    slide_num = None
+                    slide_id = None
+                    
                     if isinstance(index, int) and 0 <= index < len(prs.slides):
                         slide_num = index + 1
                         slide_id = list(slides_by_id.keys())[index]
@@ -886,41 +909,43 @@ async def review_document(
                                     slide_num = list(slides_by_id.keys()).index(slide_id) + 1
                             except Exception as e:
                                 log.warning(f"Failed to parse slide ID: {e}")
-
+                    
                     if slide_num and slide_id:
-                        comments_by_slide.setdefault(slide_num, [])
+                        if slide_num not in comments_by_slide:
+                            comments_by_slide[slide_num] = []
+                        
                         shape_info = ""
                         if "/shid:" in str(index):
                             try:
                                 shape_id = int(str(index).split("/shid:")[1])
                                 shape_info = f"[Shape {shape_id}] "
-                            except Exception:
+                            except:
                                 pass
+                        
                         comments_by_slide[slide_num].append(f"{shape_info}{comment_text}")
-
-                comment_start_x = 5000
-                comment_start_y = 1000
-                comment_spacing_y = 1500
-
+                comment_offset = 0              
                 for slide_num, comments in comments_by_slide.items():
+                    comment_start_x = 5000
+                    comment_start_y = 1000
+                    comment_spacing_y = 1500
+                    
                     for idx, comment in enumerate(comments):
                         try:
                             y_position = comment_start_y + (idx * comment_spacing_y)
+                            
                             _add_native_pptx_comment_zip(
                                 pptx_path=temp_pptx,
                                 slide_num=slide_num,
                                 comment_text=f"• {comment}",
                                 author_id=0,
                                 x=comment_start_x,
-                                y=y_position,
+                                y=y_position
                             )
-                            log.debug(f"Added native comment on slide {slide_num} at y={y_position}")
+                            log.debug(f"Native PowerPoint comment added to slide {slide_num} at position x={comment_start_x}, y={y_position}")
                         except Exception as e:
-                            log.warning(f"Native comment failed on slide {slide_num}: {e}", exc_info=True)
-                            # fallback textbox
+                            log.warning(f"Failed to add native comment to slide {slide_num}: {e}", exc_info=True)
                             prs_fallback = Presentation(temp_pptx)
                             slide = prs_fallback.slides[slide_num - 1]
-                            from pptx.util import Inches, Pt as PptPt
                             left = top = Inches(0.2)
                             width = Inches(4)
                             height = Inches(1)
@@ -928,33 +953,37 @@ async def review_document(
                             text_frame = textbox.text_frame
                             p = text_frame.add_paragraph()
                             p.text = f"AI Reviewer: {comment}"
-                            try:
-                                p.font.size = PptPt(10)
-                            except Exception:
-                                pass
+                            p.font.size = PptPt(10)
                             prs_fallback.save(temp_pptx)
 
-                reviewed_path = os.path.join(temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx")
+                reviewed_path = os.path.join(
+                    temp_folder, f"{os.path.splitext(file_name)[0]}_reviewed.pptx"
+                )
                 shutil.copy(temp_pptx, reviewed_path)
+                
                 response = upload_file(
                     file_path=reviewed_path,
                     filename=f"{os.path.splitext(file_name)[0]}_reviewed",
-                    file_type="pptx",
-                    token=user_token,
+                    file_type="pptx", 
+                    token=user_token
                 )
-
             except Exception as e:
                 raise Exception(f"Error when revising PPTX: {e}")
 
         else:
-            raise Exception(f"File type not supported: {file_type}")
+            raise Exception(f"File type not supported : {file_type}")
 
         shutil.rmtree(temp_folder, ignore_errors=True)
+
         return response
 
     except Exception as e:
         shutil.rmtree(temp_folder, ignore_errors=True)
-        return json.dumps({"error": {"message": str(e)}}, indent=4, ensure_ascii=False)
+        return json.dumps(
+            {"error": {"message": str(e)}},
+            indent=4,
+            ensure_ascii=False
+        )
 
 
 @mcp.tool()
