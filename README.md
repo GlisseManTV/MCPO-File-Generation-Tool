@@ -7,6 +7,19 @@ A lightweight, MCPO-integrated tool that lets you **generate, edit and review re
 ✅ Ready for production workflows
 ✅ Open source & MIT licensed
 
+🚀 **Create and export files easily from Open WebUI!**
+
+This tool allows seamless file generation and export directly from your Open WebUI environment using Python and FastAPI.
+
+## Multi files
+
+https://github.com/user-attachments/assets/41dadef9-7981-4439-bf5f-3b82fcbaff04
+
+
+## Single archive
+
+https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
+
 ## Table of Contents
 - [Quick Start](#quick-start)
   - [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
@@ -35,27 +48,12 @@ A lightweight, MCPO-integrated tool that lets you **generate, edit and review re
     - [Environment variables](#DEV-MCPO-env-variables)
     - [DOCKER EXAMPLE](#dev-docker-example)
 
-
-🚀 **Create and export files easily from Open WebUI!**
-
-This tool allows seamless file generation and export directly from your Open WebUI environment using Python and FastAPI.
-
-## Multi files
-
-https://github.com/user-attachments/assets/41dadef9-7981-4439-bf5f-3b82fcbaff04
-
-
-## Single archive
-
-https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
-
-
 # Quick Start
 
-## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
-## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
-## How to use the tool here: [HowToUse.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
-## How configure the tool here : [HowToConfigure.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
+## Best practices [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
+## Prompt examples [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
+## How to use the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
+## How configure the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
 
 ---
 

@@ -53,7 +53,10 @@
         1. Add new tool
         2. Follow the insctruction below
 
+        **Auth must be "Session"**        
+
         ![alt text](img/image.png)
+
 2. User settings
     1. Account
         1. Generate new API key if not already done so
@@ -118,8 +121,8 @@
         2. Follow the insctruction below
             - For SSE, use /sse endpoint
             - for http, use /mcp endpoint
-
-
+        
+        **Auth must be "Session"**    
             ![alt text](img/image-3.png)![alt text](img/image-2.png)
 2. User settings
     1. Account
