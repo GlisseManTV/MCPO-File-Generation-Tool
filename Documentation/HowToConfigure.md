@@ -53,12 +53,12 @@
         1. Add new tool
         2. Follow the insctruction below
 
-        ![alt text](image.png)
+        ![alt text](img/image.png)
 2. User settings
     1. Account
         1. Generate new API key if not already done so
         
-        ![alt text](image-4.png)
+        ![alt text](img/image-4.png)
 
 
 
@@ -120,9 +120,9 @@
             - for http, use /mcp endpoint
 
 
-            ![alt text](image-3.png)![alt text](image-2.png)
+            ![alt text](img/image-3.png)![alt text](img/image-2.png)
 2. User settings
     1. Account
         1. Generate new API key if not already done so
 
-        ![alt text](image-5.png)
+        ![alt text](img/image-5.png)
