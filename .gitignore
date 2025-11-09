@@ -366,3 +366,10 @@ FodyWeavers.xsd
 /ion = ($versionInfo  ConvertFrom-Json).MajorMinorPatch
 /ion = v
 /_oldGitVersion.yml
+
+/LLM_Export/Documentation/image.png
+/LLM_Export/Documentation/image-1.png
+/LLM_Export/Documentation/image-2.png
+/LLM_Export/Documentation/image-3.png
+/LLM_Export/Documentation/image-4.png
+/LLM_Export/Documentation/image-5.png
