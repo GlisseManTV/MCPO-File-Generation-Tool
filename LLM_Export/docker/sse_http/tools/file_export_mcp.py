@@ -3268,7 +3268,7 @@ async def handle_sse(request: Request) -> Response:
                                                             ]
                                                         }
                                                     },
-                                                    "additionalProperties": false
+                                                    "additionalProperties": False
                                                 }
                                             }
                                         }
@@ -3310,7 +3310,7 @@ async def handle_sse(request: Request) -> Response:
                                                             "description": "Comment or correction text"
                                                         }
                                                     },
-                                                    "additionalProperties": false
+                                                    "additionalProperties": False
                                                 }
                                             }
                                 },
