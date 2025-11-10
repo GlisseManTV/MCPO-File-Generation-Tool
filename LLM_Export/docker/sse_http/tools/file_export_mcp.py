@@ -63,7 +63,10 @@ SCRIPT_VERSION = "0.8.0"
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
 
-PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
+def _env_bool(val: str | None) -> bool:
+    return str(val).strip().lower() in ("1", "true", "yes", "y", "on") if val is not None else False
+
+PERSISTENT_FILES = _env_bool(os.getenv("PERSISTENT_FILES", "false"))
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
@@ -2986,10 +2989,34 @@ async def handle_sse(request: Request) -> Response:
                                                 "description": "Document title (for docx, pptx, xlsx, pdf)"
                                             },
                                             "content": {
-                                                "description": "Content varies by format. For pdf/docx: array of objects with type/text. For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
+                                                "description": "Content varies by format. For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
                                                 "oneOf": [
-                                                    {"type": "array"},
-                                                    {"type": "string"}
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "anyOf": [
+                                                                { "type": "string" },
+                                                                { "type": "number" },
+                                                                { "type": "boolean" },
+                                                                { "type": "object" },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "anyOf": [
+                                                                            { "type": "string" },
+                                                                            { "type": "number" },
+                                                                            { "type": "boolean" },
+                                                                            { "type": "object" },
+                                                                            { "type": "null" }
+                                                                        ]
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    { "type": "string" },
+                                                    { "type": "object" },
+                                                    { "type": "null" }
                                                 ]
                                             },
                                             "slides_data": {
@@ -3043,10 +3070,68 @@ async def handle_sse(request: Request) -> Response:
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "format": {"type": "string"},
-                                                "filename": {"type": "string"},
-                                                "content": {"type": "array"},
-                                                "title": {"type": "string"}
+                                                "format": { "type": "string" },
+                                                "filename": { "type": "string" },
+                                                "content": {
+                                                    "description": "For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For others: string/object",
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "anyOf": [
+                                                                    { "type": "string" },
+                                                                    { "type": "number" },
+                                                                    { "type": "boolean" },
+                                                                    { "type": "object" },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "anyOf": [
+                                                                                { "type": "string" },
+                                                                                { "type": "number" },
+                                                                                { "type": "boolean" },
+                                                                                { "type": "object" },
+                                                                                { "type": "null" }
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        { "type": "string" },
+                                                        { "type": "object" },
+                                                        { "type": "null" }
+                                                    ]
+                                                },
+                                                "title": { "type": "string" },
+                                                "slides_data": {
+                                                    "type": "array",
+                                                    "description": "For pptx format only: array of slide objects",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "title": { "type": "string" },
+                                                            "content": {
+                                                                "type": "array",
+                                                                "items": { "type": "string" }
+                                                            },
+                                                            "image_query": {
+                                                                "type": "string",
+                                                                "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                            },
+                                                            "image_position": {
+                                                                "type": "string",
+                                                                "enum": ["left", "right", "top", "bottom"],
+                                                                "description": "Position of the image on the slide"
+                                                            },
+                                                            "image_size": {
+                                                                "type": "string",
+                                                                "enum": ["small", "medium", "large"],
+                                                                "description": "Size of the image"
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             },
                                             "required": ["format"]
                                         }
@@ -3120,12 +3205,26 @@ async def handle_sse(request: Request) -> Response:
                                                             "description": "Target reference (element ID or cell ref)"
                                                         },
                                                         {
-                                                            "description": "New content (text string or array of strings for lists)",
+                                                            "description": "New content (string, number, boolean, array of strings, or 2D array for tables)",
                                                             "oneOf": [
                                                                 {"type": "string"},
                                                                 {"type": "array", "items": {"type": "string"}},
                                                                 {"type": "number"},
-                                                                {"type": "boolean"}
+                                                                {"type": "boolean"},
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "oneOf": [
+                                                                                {"type": "string"},
+                                                                                {"type": "number"},
+                                                                                {"type": "boolean"},
+                                                                                {"type": "null"}
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                }
                                                             ]
                                                         }
                                                     ]
@@ -3139,7 +3238,7 @@ async def handle_sse(request: Request) -> Response:
                         },
                         {
                             "name": "review_document",
-                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel files, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word/PowerPoint, use integer indices.",
+                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word: use either an integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: use either an integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>' to target a shape).",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
