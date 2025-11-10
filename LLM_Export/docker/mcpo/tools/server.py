@@ -82,7 +82,10 @@ log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET')
 
-PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
+def _env_bool(val: str | None) -> bool:
+    return str(val).strip().lower() in ("1", "true", "yes", "y", "on") if val is not None else False
+
+PERSISTENT_FILES = _env_bool(os.getenv("PERSISTENT_FILES", "false"))
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
@@ -429,6 +432,15 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass            
 
                 new_refs: dict[str, int] = {}
 
@@ -530,7 +542,15 @@ async def edit_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
                 edit_items = edits.get("content_edits", []) if isinstance(edits, dict) and "content_edits" in edits else edits
-
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
                 for index, new_text in edit_items:
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
@@ -566,7 +586,15 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
-
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
                 new_ref_needs = _collect_needs(edit_items)
                 order = [int(s.slide_id) for s in prs.slides]
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
@@ -777,7 +805,15 @@ async def review_document(
 
         reviewed_path = None
         response = None
-
+        try:
+            if isinstance(review_comments, list) and (len(review_comments) == 0 or isinstance(review_comments[0], dict)):
+                review_comments = [
+                    [item.get("index"), item.get("comment")]
+                    for item in (review_comments or [])
+                    if isinstance(item, dict) and "index" in item and "comment" in item
+                ]
+        except Exception:
+            pass
         if file_type == "docx":
             try:
                 doc = Document(user_file)
