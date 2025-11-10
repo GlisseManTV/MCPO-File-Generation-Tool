@@ -51,7 +51,7 @@ from reportlab.lib.units import mm
 #NonDockerImport
 import asyncio
 import uvicorn
-from typing import Any
+from typing import Any, TypedDict, Union, List
 from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.applications import Starlette
@@ -308,6 +308,10 @@ logging.basicConfig(
 log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
+
+class ReviewComment(TypedDict):
+    index: Union[int, str]
+    comment: str
 
 mcp = FastMCP(
     name = "file_export",
@@ -2612,7 +2616,7 @@ def _add_native_pptx_comment_zip(pptx_path, slide_num, comment_text, author_id, 
 async def review_document(
     file_id: str,
     file_name: str,
-    review_comments: list[tuple[int | str, str]],
+    review_comments: List[ReviewComment],
     ctx: Context[ServerSession, None]
 ) -> dict:
     """
@@ -2654,14 +2658,21 @@ async def review_document(
         reviewed_path = None
         response = None
 
-        # Defensive normalization: accept array of objects {index, comment}
+        # Normalize to list of objects {index, comment}
+        norm_comments: List[ReviewComment] = []
         try:
-            if isinstance(review_comments, list) and (len(review_comments) == 0 or isinstance(review_comments[0], dict)):
-                review_comments = [
-                    [item.get("index"), item.get("comment")]
-                    for item in (review_comments or [])
-                    if isinstance(item, dict) and "index" in item and "comment" in item
-                ]
+            if isinstance(review_comments, list):
+                if len(review_comments) == 0:
+                    norm_comments = []
+                elif isinstance(review_comments[0], dict):
+                    for item in review_comments:
+                        if isinstance(item, dict) and "index" in item and "comment" in item:
+                            norm_comments.append({"index": item["index"], "comment": str(item["comment"])})
+                else:
+                    # Legacy: [[index, comment], ...] or tuples
+                    for item in review_comments:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            norm_comments.append({"index": item[0], "comment": str(item[1])})
         except Exception:
             pass
 
@@ -2679,7 +2690,9 @@ async def review_document(
                     para_by_xml_id[para_id_counter] = para
                     para_id_counter += 1
 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
                         if para.runs:
@@ -2737,7 +2750,9 @@ async def review_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
@@ -2777,7 +2792,9 @@ async def review_document(
                 
                 comments_by_slide = {}
                 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     slide_num = None
                     slide_id = None
                     
