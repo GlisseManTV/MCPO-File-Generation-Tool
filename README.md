@@ -7,31 +7,6 @@ A lightweight, MCPO-integrated tool that lets you **generate, edit and review re
 ✅ Ready for production workflows
 ✅ Open source & MIT licensed
 
-## Table of Contents
-- [Quick Start](#quick-start)
-  - [Supported File Types](#supported-file-types)
-  - [Project Structure](#project-structure)
-- [Using Docker (Recommended)](#Using-docker-recommended)
-  - [For SSE - http streamable file export server](#for-sse---http-streamable-file-export-server)
-    - [Environment variables](#SSE-HTTP-env-variables)
-  - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
-    - [Environment variables](#MCPO-env-variables)
-    - [Docker Example](#docker-example)
-- [For Python Users](#for-python-users)
-  - [PYTHON EXAMPLE](#python-example)
-- [Notes](#notes)
-- [📬 Need help?](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/issues/new/choose)
-- [Quick Start for Development Versions](#quick-start-for-development-versions)
-  - [Development Workflow](#development-workflow)
-    - [Branching Strategy](#branching-strategy)
-    - [Workflow Flow](#workflow-flow)
-  - [For SSE - http streamable file export server !!New!!](#for-sse---http-streamable-file-export-server--new-)
-    - [Environment variables](#DEV-SSE-HTTP-env-variables)
-  - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
-    - [Environment variables](#DEV-MCPO-env-variables)
-    - [DOCKER EXAMPLE](#dev-docker-example)
-
-
 🚀 **Create and export files easily from Open WebUI!**
 
 This tool allows seamless file generation and export directly from your Open WebUI environment using Python and FastAPI.
@@ -45,13 +20,40 @@ https://github.com/user-attachments/assets/41dadef9-7981-4439-bf5f-3b82fcbaff04
 
 https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 
+## Table of Contents
+- [Quick Start](#quick-start)
+  - [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
+  - [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
+  - [HowToConfigure.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
+  - [HowToUse.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
+  - [Supported File Types](#supported-file-types)  
+- [Using Docker (Recommended)](#Using-docker-recommended)
+  - [For SSE - http streamable file export server](#for-sse---http-streamable-file-export-server)
+    - [Environment variables](#SSE-HTTP-env-variables)
+  - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
+    - [Environment variables](#MCPO-env-variables)
+    - [Docker Example](#docker-example)
+- [For Python Users](#for-python-users)
+  - [PYTHON EXAMPLE](#python-example)
+- [Notes](#notes)
+- [Project Structure](#project-structure)
+- [📬 Need help?](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/issues/new/choose)
+- [Quick Start for Development Versions](#quick-start-for-development-versions)
+  - [Development Workflow](#development-workflow)
+    - [Branching Strategy](#branching-strategy)
+    - [Workflow Flow](#workflow-flow)
+  - [For SSE - http streamable file export server !!New!!](#for-sse---http-streamable-file-export-server--new-)
+    - [Environment variables](#DEV-SSE-HTTP-env-variables)
+  - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
+    - [Environment variables](#DEV-MCPO-env-variables)
+    - [DOCKER EXAMPLE](#dev-docker-example)
 
 # Quick Start
 
-## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
-## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
-## How to use the tool here: [HowToUse.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
-## How configure the tool here : [HowToConfigure.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
+## Best practices [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
+## Prompt examples [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
+## How to use the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
+## How configure the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
 
 ---
 
@@ -64,40 +66,6 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 - ✅ `.docx` (Word)
 - ✅ `.zip`n `tar.gz` and `.7z` (Archives)
 - ✅ Any other file type 
-
----
-
-## Project Structure
-
-```
-MCPO-File-Generation-Tool/
-├── LLM_Export/
-│   ├── tools/
-│   │   ├── file_export_server.py
-│   │   └── file_export_mcp.py
-│   └── ...
-├── docker/
-│   ├── file_server/
-│   │   ├── Dockerfile.server
-│   │   ├── file_server_compose.yaml
-│   │   └── file_export_server.py
-│   ├── mcpo/
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   ├── config.json
-│   │   ├── MCPO_server_compose.yaml
-│   │   └──tools/
-│   │       └── file_export_mcp.py
-│   ├── sse_http/
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   ├── config.json
-│   │   ├── MCPO_server_compose.yaml
-│   │   └──tools/
-│   │       └── file_export_mcp.py
-│   └── docker-compose.yaml
-└── README.md
-```
 
 ---
 
@@ -137,7 +105,8 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+   - `JWT_TOKEN`: Token to access your OWUI instance (only for edit/review used behind an external mcpo server / no longer used if you are SSE/HTTP direct in OWUI)
    - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
@@ -162,7 +131,6 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
 
 ### MCPO ENV VARIABLES
 
-   - `MCPO_API_KEY`: Your MCPO API key (no default value, not mandatory but advised)
    - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the server's export directory) (default is `/output`) path must be mounted as a volume
    - `PERSISTENT_FILES`: Set to `true` to keep files after download, `false` to delete after delay (default is `false`)
@@ -180,8 +148,7 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: Token to access your OWUI instance (no default value, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -220,7 +187,6 @@ services:
     environment:
       - FILE_EXPORT_BASE_URL=http://file-export-server:9003/files
       - FILE_EXPORT_DIR=/output
-      - MCPO_API_KEY=top-secret
       - PERSISTENT_FILES=true
       - FILES_DELAY=1
       - LOG_LEVEL=INFO
@@ -237,8 +203,7 @@ services:
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
       - OWUI_URL=http://localhost:8000
-      - OWUI_JWT_TOKEN=jwt-token-h # (only for MCPO image)
-      - MODE="sse" or "http" or empty # (only for SSE image)
+      - OWUI_JWT_TOKEN=jwt-token-h # (only for edit/review used behind an external mcpo server / no longer used if you are using the builtin or SSE/HTTP direct in OWUI)
     ports:
       - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
       - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
@@ -268,6 +233,7 @@ services:
 			],
 			"env": {
 				"PYTHONPATH": "C:\\temp\\LLM_Export" <==== HERE set the path to your LLM_Export folder (this one is Mandatory)
+        ........... other env variables
 			},
 			"disabled": false,
 			"autoApprove": []
@@ -307,8 +273,8 @@ services:
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `OWUI_JWT_TOKEN`: JWT token to use to connect to your OWUI instance (no default value, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+   - `JWT_TOKEN`: JWT token to use for authentication (no default value, mandatory to use edit/review behind an external mcpo tool)  
 
 
    
@@ -362,7 +328,7 @@ This is an example of a minimal `config.json` for MCPO to enable file export but
                 "LOCAL_SD_SCHEDULER": "Karras", <==== HERE set to the scheduler to use (if any)>
                 "LOCAL_SD_SAMPLE": "Euler a", <==== HERE set to the sampler to use (if any)>
                 "OWUI_URL": "http://localhost:3000", <== HERE set to the OWUI URL>
-                "JWT_TOKEN": "topsecret" <== HERE set to the JWT token to use to connect to your OWUI instance>
+                "JWT_TOKEN": "topsecret" <== HERE set to the JWT token to use to connect to your OWUI instance (only for edit/review used behind an external mcpo server)>
 			},
 			"disabled": false,
 			"autoApprove": []
@@ -370,6 +336,104 @@ This is an example of a minimal `config.json` for MCPO to enable file export but
   }
 }
 ```
+
+---
+
+## Project Structure
+
+```
+MCPO-File-Generation-Tool/
+├───Documentation
+│   │   Best_Practices.md
+│   │   HowToConfigure.md
+│   │   HowToUse.md
+│   │   Prompt_Examples.md
+│   │
+│   └───img
+│           image-1.png
+│           image-2.png
+│           image-3.png
+│           image-4.png
+│           image-5.png
+│           image.png
+│
+└───LLM_Export
+    │   Example_docker-compose.yaml
+    │   requirements.txt
+    │
+    ├───docker
+    │   ├───file_server
+    │   │       dockerfile.server
+    │   │       file_export_server.py
+    │   │
+    │   ├───mcpo
+    │   │   │   config.json
+    │   │   │   dockerfile
+    │   │   │   requirements.txt
+    │   │   │
+    │   │   ├───functions
+    │   │   │       files_metadata_injector.py
+    │   │   │
+    │   │   ├───templates
+    │   │   │       Default_Template.docx
+    │   │   │       Default_Template.pptx
+    │   │   │       Default_Template.xlsx
+    │   │   │
+    │   │   ├───tools
+    │   │   │   │   server.py
+    │   │   │   │   _static_import_check.py
+    │   │   │   └───__init__.py
+    │   │   │
+    │   │   └───utils
+    │   │           docx_treatment.py
+    │   │           file_treatment.py
+    │   │           pdf_treatment.py
+    │   │           pptx_treatment.py
+    │   │           xlsx_treatment.py
+    │   │           __init__.py
+    │   │
+    │   └───sse_http
+    │       │   config.json
+    │       │   dockerfile
+    │       │   requirements.txt
+    │       │
+    │       ├───functions
+    │       │       files_metadata_injector.py
+    │       │
+    │       ├───templates
+    │       │       Default_Template.docx
+    │       │       Default_Template.pptx
+    │       │       Default_Template.xlsx
+    │       │
+    │       ├───tools
+    │       │       server.py
+    │       │       _static_import_check.py
+    │       │       __init__.py
+    │       │
+    │       └───utils
+    │               docx_treatment.py
+    │               file_treatment.py
+    │               pdf_treatment.py
+    │               pptx_treatment.py
+    │               xlsx_treatment.py
+    │               __init__.py
+    │
+    ├───functions
+    │       files_metadata_injector.py
+    │
+    ├───output	
+    ├───templates
+    │       Default_Template.docx
+    │       Default_Template.pptx
+    │       Default_Template.xlsx
+    │
+    └───tools
+            file_export_mcp.py
+            file_export_server.py
+            __init__.py
+```
+
+---
 
 ## 🌟 Why This Matters
 
@@ -468,7 +532,7 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
+   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
    - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
@@ -489,7 +553,6 @@ docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
 
 ### DEV MCPO ENV VARIABLES
 
-   - `MCPO_API_KEY`: Your MCPO API key (no default value, not mandatory but advised)
    - `FILE_EXPORT_BASE_URL`: URL of your file export server (default is `http://localhost:9003/files`)
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the server's export directory) (default is `/output`) path must be mounted as a volume
    - `PERSISTENT_FILES`: Set to `true` to keep files after download, `false` to delete after delay (default is `false`)
@@ -507,8 +570,7 @@ docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: JWT token to use for authentication (no default value, not mandatory)   
+   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -548,7 +610,6 @@ services:
     environment:
       - FILE_EXPORT_BASE_URL=http://file-export-server:9003/files
       - FILE_EXPORT_DIR=/output
-      - MCPO_API_KEY=top-secret
       - PERSISTENT_FILES=true
       - FILES_DELAY=1
       - LOG_LEVEL=DEBUG
@@ -564,6 +625,7 @@ services:
       - LOCAL_SD_CFG_SCALE=1.5
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
+      - OWUI_URL=http://localhost:3000
     ports:
       - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
       - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
