@@ -58,7 +58,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.8.1-rc1"
+SCRIPT_VERSION = "0.8.1-rc3"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
@@ -2073,6 +2073,16 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
           
                 new_refs = {}
                 
@@ -2185,6 +2195,16 @@ async def edit_document(
                 ws = wb.active
 
                 edit_items = edits.get("content_edits", []) if isinstance(edits, dict) and "content_edits" in edits else edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
           
                 for index, new_text in edit_items:
                     try:
@@ -2223,6 +2243,16 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
                 new_ref_needs = _collect_needs(edit_items)
                 order = [int(s.slide_id) for s in prs.slides]
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
@@ -2623,6 +2653,17 @@ async def review_document(
 
         reviewed_path = None
         response = None
+
+        # Defensive normalization: accept array of objects {index, comment}
+        try:
+            if isinstance(review_comments, list) and (len(review_comments) == 0 or isinstance(review_comments[0], dict)):
+                review_comments = [
+                    [item.get("index"), item.get("comment")]
+                    for item in (review_comments or [])
+                    if isinstance(item, dict) and "index" in item and "comment" in item
+                ]
+        except Exception:
+            pass
 
         if file_type == "docx":
             try:
@@ -3194,23 +3235,22 @@ async def handle_sse(request: Request) -> Response:
                                             },
                                             "content_edits": {
                                                 "type": "array",
-                                                "description": "Content updates as [target, new_text] pairs. For PPTX: ['sid:<slide_id>/shid:<shape_id>', text], ['nK:slot:title', text], ['nK:slot:body', text]. For DOCX: ['pid:<para_xml_id>', text], ['tid:<table_xml_id>/cid:<cell_xml_id>', text], ['nK', text]. For XLSX: ['A1', value], ['B5', value]",
+                                                "description": "Content updates. Prefer object items: {target, value}. For PPTX: target 'sid:<slide_id>/shid:<shape_id>' or 'nK:slot:title'/'body'/'table'. For DOCX: 'pid:<para_xml_id>' or 'tid:<table_xml_id>/cid:<cell_xml_id>' or 'nK'. For XLSX: 'A1', 'B5'.",
                                                 "items": {
-                                                    "type": "array",
-                                                    "minItems": 2,
-                                                    "maxItems": 2,
-                                                    "items": [
-                                                        {
+                                                    "type": "object",
+                                                    "required": ["target", "value"],
+                                                    "properties": {
+                                                        "target": {
                                                             "type": "string",
                                                             "description": "Target reference (element ID or cell ref)"
                                                         },
-                                                        {
+                                                        "value": {
                                                             "description": "New content (string, number, boolean, array of strings, or 2D array for tables)",
                                                             "oneOf": [
                                                                 {"type": "string"},
-                                                                {"type": "array", "items": {"type": "string"}},
                                                                 {"type": "number"},
                                                                 {"type": "boolean"},
+                                                                {"type": "array", "items": {"type": "string"}},
                                                                 {
                                                                     "type": "array",
                                                                     "items": {
@@ -3227,7 +3267,8 @@ async def handle_sse(request: Request) -> Response:
                                                                 }
                                                             ]
                                                         }
-                                                    ]
+                                                    },
+                                                    "additionalProperties": false
                                                 }
                                             }
                                         }
@@ -3250,28 +3291,28 @@ async def handle_sse(request: Request) -> Response:
                                         "type": "string",
                                         "description": "The name of the file with extension"
                                     },
-                                    "review_comments": {
-                                        "type": "array",
-                                        "description": "Array of [index, comment_text] tuples. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index. For PowerPoint: integer slide index.",
-                                        "items": {
-                                            "type": "array",
-                                            "minItems": 2,
-                                            "maxItems": 2,
-                                            "items": [
-                                                {
-                                                    "description": "Index/reference: For Excel use cell reference (e.g., 'A1'), for Word/PowerPoint use integer",
-                                                    "oneOf": [
-                                                        {"type": "string"},
-                                                        {"type": "integer"}
-                                                    ]
-                                                },
-                                                {
-                                                    "type": "string",
-                                                    "description": "Comment or correction text"
+                                            "review_comments": {
+                                                "type": "array",
+                                                "description": "Array of objects {index, comment}. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>').",
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["index", "comment"],
+                                                    "properties": {
+                                                        "index": {
+                                                            "description": "Index/reference: For Excel use cell reference (e.g., 'A1'); for Word/PowerPoint use integer or an id key string like 'pid:<para_xml_id>' / 'sid:<slide_id>'",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "integer"}
+                                                            ]
+                                                        },
+                                                        "comment": {
+                                                            "type": "string",
+                                                            "description": "Comment or correction text"
+                                                        }
+                                                    },
+                                                    "additionalProperties": false
                                                 }
-                                            ]
-                                        }
-                                    }
+                                            }
                                 },
                                 "required": ["file_id", "file_name", "review_comments"]
                             }
@@ -3324,6 +3365,19 @@ async def handle_sse(request: Request) -> Response:
 
                     elif tool_name == "edit_document":
                         arguments.setdefault("ctx", ctx)
+                        # Normalize 'edits.content_edits' to list of [target, value] for backward compatibility
+                        try:
+                            edits_arg = arguments.get("edits")
+                            if isinstance(edits_arg, dict):
+                                ce = edits_arg.get("content_edits")
+                                if isinstance(ce, list) and (len(ce) == 0 or isinstance(ce[0], dict)):
+                                    edits_arg["content_edits"] = [
+                                        [item.get("target"), item.get("value")]
+                                        for item in (ce or [])
+                                        if isinstance(item, dict) and "target" in item and "value" in item
+                                    ]
+                        except Exception:
+                            pass
                         result = await edit_document(**arguments)
                         response["result"] = {
                             "content": [
@@ -3337,6 +3391,17 @@ async def handle_sse(request: Request) -> Response:
 
                     elif tool_name == "review_document":
                         arguments.setdefault("ctx", ctx)
+                        # Normalize 'review_comments' to list of [index, comment] for backward compatibility
+                        try:
+                            rc = arguments.get("review_comments")
+                            if isinstance(rc, list) and (len(rc) == 0 or isinstance(rc[0], dict)):
+                                arguments["review_comments"] = [
+                                    [item.get("index"), item.get("comment")]
+                                    for item in (rc or [])
+                                    if isinstance(item, dict) and "index" in item and "comment" in item
+                                ]
+                        except Exception:
+                            pass
                         result = await review_document(**arguments)
                         response["result"] = {
                             "content": [
