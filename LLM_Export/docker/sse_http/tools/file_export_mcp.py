@@ -51,7 +51,8 @@ from reportlab.lib.units import mm
 #NonDockerImport
 import asyncio
 import uvicorn
-from typing import Any, TypedDict, Union, List
+from typing import Any, Union, List
+from typing_extensions import TypedDict
 from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.applications import Starlette
