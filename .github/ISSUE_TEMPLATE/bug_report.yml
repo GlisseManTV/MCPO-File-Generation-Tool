@@ -12,7 +12,7 @@ body:
   - type: dropdown
     id: used-way
     attributes:
-      label: Used Way
+      label: Runner
       description: How are you using the service?
       options:
         - Docker
