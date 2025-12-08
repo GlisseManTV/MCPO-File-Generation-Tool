@@ -1,4 +1,4 @@
-FROM ghcr.io/glissemantv/mcpo:main
+FROM ghcr.io/glissemantv/mcpo:dev
 
 COPY requirements.txt /tmp/requirements.txt
 
