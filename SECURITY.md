@@ -22,7 +22,7 @@ Public disclosure of security vulnerabilities can be exploited by malicious acto
 
 Please send a detailed report to:
 
-**Email:** [contact@gliseman.tv](mailto:contact@gliseman.tv)
+**Email:** [admin@itconsult.care](mailto:admin@itconsult.care)
 
 ### What to include in your report
 
