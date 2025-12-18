@@ -1,9 +1,13 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 #FROM ghcr.io/open-webui/mcpo:main
 FROM ghcr.io/glissemantv/mcpo:main
 =======
 FROM ghcr.io/glissemantv/mcpo:dev-headers
 >>>>>>> 134d8d3 (chore(docker): use dev-headers image instead of dev)
+=======
+FROM ghcr.io/glissemantv/mcpo:dev
+>>>>>>> a5375b6 (refactor(mcpo): switch Docker base image to lightweight dev)
 
 COPY requirements.txt /tmp/requirements.txt
 
