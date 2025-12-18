@@ -106,7 +106,6 @@ MCPO-File-Generation-Tool/
 ## For SSE - http streamable file export server
 
 ### This image is dedicated for entreprise grade usecases and advanced users
-### **This image has advanced features like multi user authentication, SSE or HTTP transport.**
 
 ### Endpoints : 
 - SSE => /sse
@@ -151,8 +150,6 @@ For OWUI-FILE-EXPORT-SERVER
 ## For OWUI-MCPO (Builtin MCPO server)
 
 ### This image is dedicated for novice or simple setup, more logs, more docs, etc.
-### **This image has not the multi users authentication yet**
-
 
 Use 
 ```
@@ -181,7 +178,6 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, not mandatory)
-   - `JWT_TOKEN`: Token to access your OWUI instance (no default value, not mandatory)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
