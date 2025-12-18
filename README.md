@@ -74,7 +74,6 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 ## For SSE - http streamable file export server
 
 ### This image is dedicated for entreprise grade usecases and advanced users
-### **This image has advanced features like multi user authentication, SSE or HTTP transport.**
 
 ### Endpoints : 
 - SSE => /sse
@@ -120,8 +119,6 @@ For OWUI-FILE-EXPORT-SERVER
 ## For OWUI-MCPO (Builtin MCPO server)
 
 ### This image is dedicated for novice or simple setup, more logs, more docs, etc.
-### **This image has not the multi users authentication yet**
-
 
 Use 
 ```
@@ -203,7 +200,6 @@ services:
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
       - OWUI_URL=http://localhost:8000
-      - OWUI_JWT_TOKEN=jwt-token-h # (only for edit/review used behind an external mcpo server / no longer used if you are using the builtin or SSE/HTTP direct in OWUI)
     ports:
       - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
       - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
