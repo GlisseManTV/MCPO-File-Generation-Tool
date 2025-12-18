@@ -1,5 +1,9 @@
+<<<<<<< HEAD
 #FROM ghcr.io/open-webui/mcpo:main
 FROM ghcr.io/glissemantv/mcpo:main
+=======
+FROM ghcr.io/glissemantv/mcpo:dev-headers
+>>>>>>> 134d8d3 (chore(docker): use dev-headers image instead of dev)
 
 COPY requirements.txt /tmp/requirements.txt
 
