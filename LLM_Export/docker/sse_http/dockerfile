@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir \
     uvicorn \
     starlette \
     pillow \
-    mcp[fastmcp]
+    mcp[fastmcp] \
+    boto3
 
 COPY config.json /rootPath
 COPY tools /rootPath/tools

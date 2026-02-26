@@ -7,8 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY file_export_server.py /app/
+COPY minio_storage.py /app/
 
-RUN pip install --no-cache-dir fastapi uvicorn
+RUN pip install --no-cache-dir fastapi uvicorn boto3
 
 ENV EXPORT_DIR=/data/output
 

@@ -11,3 +11,4 @@ emoji
 python-pptx
 python-docx
 requests
+boto3
