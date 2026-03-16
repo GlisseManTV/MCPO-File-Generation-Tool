@@ -10,9 +10,9 @@ body:
         Please provide as much detail as possible to help us resolve the issue.
   
   - type: dropdown
-    id: used-way
+    id: runner
     attributes:
-      label: Used Way
+      label: Runner
       description: How are you using the service?
       options:
         - Docker

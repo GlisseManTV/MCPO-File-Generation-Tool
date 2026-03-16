@@ -62,9 +62,12 @@ from reportlab.lib.units import mm
 SCRIPT_VERSION = "0.9.0-fc1"
 
 URL = os.getenv('OWUI_URL')
-TOKEN = os.getenv('JWT_SECRET')
+TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
 
-PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
+def _env_bool(val: str | None) -> bool:
+    return str(val).strip().lower() in ("1", "true", "yes", "y", "on") if val is not None else False
+
+PERSISTENT_FILES = _env_bool(os.getenv("PERSISTENT_FILES", "false"))
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
@@ -2079,6 +2082,16 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
           
                 new_refs = {}
                 
@@ -2191,6 +2204,16 @@ async def edit_document(
                 ws = wb.active
 
                 edit_items = edits.get("content_edits", []) if isinstance(edits, dict) and "content_edits" in edits else edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
           
                 for index, new_text in edit_items:
                     try:
@@ -2229,6 +2252,16 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
                 new_ref_needs = _collect_needs(edit_items)
                 order = [int(s.slide_id) for s in prs.slides]
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
@@ -2633,6 +2666,24 @@ async def review_document(
         reviewed_path = None
         response = None
 
+        # Normalize to list of objects {index, comment}
+        norm_comments: List[ReviewComment] = []
+        try:
+            if isinstance(review_comments, list):
+                if len(review_comments) == 0:
+                    norm_comments = []
+                elif isinstance(review_comments[0], dict):
+                    for item in review_comments:
+                        if isinstance(item, dict) and "index" in item and "comment" in item:
+                            norm_comments.append({"index": item["index"], "comment": str(item["comment"])})
+                else:
+                    # Legacy: [[index, comment], ...] or tuples
+                    for item in review_comments:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            norm_comments.append({"index": item[0], "comment": str(item[1])})
+        except Exception:
+            pass
+
         if file_type == "docx":
             try:
                 doc = Document(user_file)
@@ -2647,7 +2698,9 @@ async def review_document(
                     para_by_xml_id[para_id_counter] = para
                     para_id_counter += 1
 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
                         if para.runs:
@@ -2705,7 +2758,9 @@ async def review_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
@@ -2745,7 +2800,9 @@ async def review_document(
                 
                 comments_by_slide = {}
                 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     slide_num = None
                     slide_id = None
                     
@@ -2933,6 +2990,598 @@ async def generate_and_archive(files_data: list[dict], archive_format: str = "zi
 
     return {"url": _public_url(folder_path, archive_filename)}
 
+from sse_starlette.sse import EventSourceResponse
+
+class SimpleRequestContext:
+    def __init__(self, request):
+        self.request = request
+
+class SimpleCtx:
+    def __init__(self, request):
+        self.request_context = SimpleRequestContext(request)
+
+async def handle_sse(request: Request) -> Response:
+    """Handle SSE transport for MCP - supports both GET and POST"""
+    
+    if request.method == "POST":
+        try:
+            message = await request.json()
+            log.debug(f"Received POST message: {message}")
+            
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": None
+            }
+            
+            method = message.get("method")
+            
+            if method == "initialize":
+                response["result"] = {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {},
+                        "logging": {}
+                    },
+                    "serverInfo": {
+                        "name": "file_export_mcp",
+                        "version": SCRIPT_VERSION
+                    }
+                }
+            elif method == "tools/list":
+                response["result"] = {
+                    "tools": [
+                        {
+                            "name": "create_file",
+                            "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, xml, py, etc.). Supports rich content including titles, paragraphs, lists, tables, images via queries, and more.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "data": {
+                                        "type": "object",
+                                        "description": "File data configuration",
+                                        "properties": {
+                                            "format": {
+                                                "type": "string",
+                                                "enum": ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md"],
+                                                "description": "Output file format"
+                                            },
+                                            "filename": {
+                                                "type": "string",
+                                                "description": "Name of the file to create (optional, will be auto-generated if not provided)"
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "Document title (for docx, pptx, xlsx, pdf)"
+                                            },
+                                            "content": {
+                                                "description": "Content varies by format. For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
+                                                "oneOf": [
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "anyOf": [
+                                                                { "type": "string" },
+                                                                { "type": "number" },
+                                                                { "type": "boolean" },
+                                                                { "type": "object" },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "anyOf": [
+                                                                            { "type": "string" },
+                                                                            { "type": "number" },
+                                                                            { "type": "boolean" },
+                                                                            { "type": "object" },
+                                                                            { "type": "null" }
+                                                                        ]
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    { "type": "string" },
+                                                    { "type": "object" },
+                                                    { "type": "null" }
+                                                ]
+                                            },
+                                            "slides_data": {
+                                                "type": "array",
+                                                "description": "For pptx format only: array of slide objects",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "title": {"type": "string"},
+                                                        "content": {
+                                                            "type": "array",
+                                                            "items": {"type": "string"}
+                                                        },
+                                                        "image_query": {
+                                                            "type": "string",
+                                                            "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                        },
+                                                        "image_position": {
+                                                            "type": "string",
+                                                            "enum": ["left", "right", "top", "bottom"],
+                                                            "description": "Position of the image on the slide"
+                                                        },
+                                                        "image_size": {
+                                                            "type": "string",
+                                                            "enum": ["small", "medium", "large"],
+                                                            "description": "Size of the image"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "required": ["format"]
+                                    },
+                                    "persistent": {
+                                        "type": "boolean",
+                                        "description": "Whether to keep files permanently (default: false, files deleted after delay)"
+                                    }
+                                },
+                                "required": ["data"]
+                            }
+                        },
+                        {
+                            "name": "generate_and_archive",
+                            "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "files_data": {
+                                        "type": "array",
+                                        "description": "Array of file data objects",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "format": { "type": "string" },
+                                                "filename": { "type": "string" },
+                                                "content": {
+                                                    "description": "For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For others: string/object",
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "anyOf": [
+                                                                    { "type": "string" },
+                                                                    { "type": "number" },
+                                                                    { "type": "boolean" },
+                                                                    { "type": "object" },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "anyOf": [
+                                                                                { "type": "string" },
+                                                                                { "type": "number" },
+                                                                                { "type": "boolean" },
+                                                                                { "type": "object" },
+                                                                                { "type": "null" }
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        { "type": "string" },
+                                                        { "type": "object" },
+                                                        { "type": "null" }
+                                                    ]
+                                                },
+                                                "title": { "type": "string" },
+                                                "slides_data": {
+                                                    "type": "array",
+                                                    "description": "For pptx format only: array of slide objects",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "title": { "type": "string" },
+                                                            "content": {
+                                                                "type": "array",
+                                                                "items": { "type": "string" }
+                                                            },
+                                                            "image_query": {
+                                                                "type": "string",
+                                                                "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                            },
+                                                            "image_position": {
+                                                                "type": "string",
+                                                                "enum": ["left", "right", "top", "bottom"],
+                                                                "description": "Position of the image on the slide"
+                                                            },
+                                                            "image_size": {
+                                                                "type": "string",
+                                                                "enum": ["small", "medium", "large"],
+                                                                "description": "Size of the image"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "required": ["format"]
+                                        }
+                                    },
+                                    "archive_format": {"type": "string", "enum": ["zip", "7z", "tar.gz"]},
+                                    "archive_name": {"type": "string"},
+                                    "persistent": {"type": "boolean"}
+                                },
+                                "required": ["files_data"]
+                            }
+                        },
+                        {
+                            "name": "full_context_document",
+                            "description": "Extract and return the complete structure, content, and metadata of a document (docx, xlsx, pptx). Returns a JSON structure with indexed elements (paragraphs, headings, tables, cells, slides, images) that can be referenced for editing or review.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI file upload"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension (e.g., 'report.docx', 'data.xlsx', 'presentation.pptx')"
+                                    }
+                                },
+                                "required": ["file_id", "file_name"]
+                            }
+                        },
+                        {
+                            "name": "edit_document",
+                            "description": "Edit an existing document (docx, xlsx, pptx) using structured operations. Supports inserting/deleting elements and updating content. ALWAYS call full_context_document() first to get proper IDs and references. Preserves formatting and returns a download link for the edited file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                    "edits": {
+                                        "type": "object",
+                                        "description": "Edit operations and content changes",
+                                        "properties": {
+                                            "ops": {
+                                                "type": "array",
+                                                "description": "Structural operations (insert/delete). For PPTX: ['insert_after', slide_id, 'nK'], ['insert_before', slide_id, 'nK'], ['delete_slide', slide_id]. For DOCX: ['insert_after', para_xml_id, 'nK'], ['insert_before', para_xml_id, 'nK'], ['delete_paragraph', para_xml_id]. For XLSX: ['insert_row', 'sheet_name', row_idx], ['delete_row', 'sheet_name', row_idx], ['insert_column', 'sheet_name', col_idx], ['delete_column', 'sheet_name', col_idx]",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "oneOf": [
+                                                            {"type": "string"},
+                                                            {"type": "integer"}
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "content_edits": {
+                                                "type": "array",
+                                                "description": "Content updates. Prefer object items: {target, value}. For PPTX: target 'sid:<slide_id>/shid:<shape_id>' or 'nK:slot:title'/'body'/'table'. For DOCX: 'pid:<para_xml_id>' or 'tid:<table_xml_id>/cid:<cell_xml_id>' or 'nK'. For XLSX: 'A1', 'B5'.",
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["target", "value"],
+                                                    "properties": {
+                                                        "target": {
+                                                            "type": "string",
+                                                            "description": "Target reference (element ID or cell ref)"
+                                                        },
+                                                        "value": {
+                                                            "description": "New content (string, number, boolean, array of strings, or 2D array for tables)",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "number"},
+                                                                {"type": "boolean"},
+                                                                {"type": "array", "items": {"type": "string"}},
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "oneOf": [
+                                                                                {"type": "string"},
+                                                                                {"type": "number"},
+                                                                                {"type": "boolean"},
+                                                                                {"type": "null"}
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    "additionalProperties": False
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "required": ["file_id", "file_name", "edits"]
+                            }
+                        },
+                        {
+                            "name": "review_document",
+                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word: use either an integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: use either an integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>' to target a shape).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_id": {
+                                        "type": "string",
+                                        "description": "The file ID from OpenWebUI"
+                                    },
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "The name of the file with extension"
+                                    },
+                                            "review_comments": {
+                                                "type": "array",
+                                                "description": "Array of objects {index, comment}. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>').",
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["index", "comment"],
+                                                    "properties": {
+                                                        "index": {
+                                                            "description": "Index/reference: For Excel use cell reference (e.g., 'A1'); for Word/PowerPoint use integer or an id key string like 'pid:<para_xml_id>' / 'sid:<slide_id>'",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "integer"}
+                                                            ]
+                                                        },
+                                                        "comment": {
+                                                            "type": "string",
+                                                            "description": "Comment or correction text"
+                                                        }
+                                                    },
+                                                    "additionalProperties": False
+                                                }
+                                            }
+                                },
+                                "required": ["file_id", "file_name", "review_comments"]
+                            }
+                        }
+                    ]
+                }
+            elif method == "tools/call":
+                params = message.get("params", {})
+                tool_name = params.get("name")
+                arguments = params.get("arguments", {}) or {}
+                ctx = SimpleCtx(request)
+
+                try:
+                    if tool_name == "create_file":
+                        result = await create_file(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"File created successfully: {result.get('url')}"
+                                }
+                            ],
+                            "isError": False
+                        }
+
+                    elif tool_name == "generate_and_archive":
+                        result = await generate_and_archive(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"Archive created successfully: {result.get('url')}"
+                                }
+                            ],
+                            "isError": False
+                        }
+
+                    elif tool_name == "full_context_document":
+                        arguments.setdefault("ctx", ctx)
+                        result = await full_context_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": result
+                                }
+                            ],
+                            "isError": False
+                        }
+
+                    elif tool_name == "edit_document":
+                        arguments.setdefault("ctx", ctx)
+                        # Normalize 'edits.content_edits' to list of [target, value] for backward compatibility
+                        try:
+                            edits_arg = arguments.get("edits")
+                            if isinstance(edits_arg, dict):
+                                ce = edits_arg.get("content_edits")
+                                if isinstance(ce, list) and (len(ce) == 0 or isinstance(ce[0], dict)):
+                                    edits_arg["content_edits"] = [
+                                        [item.get("target"), item.get("value")]
+                                        for item in (ce or [])
+                                        if isinstance(item, dict) and "target" in item and "value" in item
+                                    ]
+                        except Exception:
+                            pass
+                        result = await edit_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                                }
+                            ],
+                            "isError": False
+                        }
+
+                    elif tool_name == "review_document":
+                        arguments.setdefault("ctx", ctx)
+                        # Normalize 'review_comments' to list of [index, comment] for backward compatibility
+                        try:
+                            rc = arguments.get("review_comments")
+                            if isinstance(rc, list) and (len(rc) == 0 or isinstance(rc[0], dict)):
+                                arguments["review_comments"] = [
+                                    [item.get("index"), item.get("comment")]
+                                    for item in (rc or [])
+                                    if isinstance(item, dict) and "index" in item and "comment" in item
+                                ]
+                        except Exception:
+                            pass
+                        result = await review_document(**arguments)
+                        response["result"] = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                                }
+                            ],
+                            "isError": False
+                        }
+
+                    else:
+                        response["error"] = {
+                            "code": -32601,
+                            "message": f"Tool not found: {tool_name}"
+                        }
+                except Exception as e:
+                    log.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
+                    response["result"] = {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Error executing tool: {str(e)}"
+                            }
+                        ],
+                        "isError": True
+                    }
+            else:
+                response["error"] = {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
+            
+            return JSONResponse(response)
+            
+        except Exception as e:
+            log.error(f"Error handling POST request: {e}", exc_info=True)
+            return JSONResponse(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32700,
+                        "message": f"Parse error: {str(e)}"
+                    }
+                },
+                status_code=400
+            )
+    
+    else:
+        async def event_generator():
+            """Generator for SSE events with correct text format"""
+            try:
+                endpoint_data = json.dumps({"endpoint": "/sse"})
+                yield f"event: endpoint\ndata: {endpoint_data}\n\n"
+                
+                import asyncio
+                while True:
+                    await asyncio.sleep(15)
+                    yield f"event: ping\ndata: {{}}\n\n"
+                    
+            except asyncio.CancelledError:
+                log.info("SSE connection closed by client")
+                raise
+            except Exception as e:
+                log.error(f"SSE Error: {e}", exc_info=True)
+                error_data = json.dumps({"error": str(e)})
+                yield f"event: error\ndata: {error_data}\n\n"
+        
+        return EventSourceResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive"
+            }
+        )
+
+async def handle_messages(request: Request) -> Response:
+    """Handle POST requests to /messages endpoint"""
+    try:
+        data = await request.json()
+        log.debug(f"Received message: {data}")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": data.get("id"),
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Message received"
+                    }
+                ]
+            }
+        }
+        
+        return JSONResponse(response)
+    except Exception as e:
+        log.error(f"Message handling error: {e}", exc_info=True)
+        return JSONResponse(
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": f"Parse error: {str(e)}"
+                }
+            },
+            status_code=400
+        )
+
+async def health_check(request: Request) -> Response:
+    """Health check endpoint"""
+    return JSONResponse({"status": "healthy", "server": "file_export_mcp"})
+
+app = Starlette(
+    debug=True,
+    routes=[
+        Route("/sse", endpoint=handle_sse, methods=["GET", "POST"]),
+        Route("/messages", endpoint=handle_messages, methods=["POST"]),
+        Route("/health", endpoint=health_check, methods=["GET"]),
+    ]
+)
+
 if __name__ == "__main__":
-    log.info(f"Starting  File Export builtin MCPO v{SCRIPT_VERSION}")
-    mcp.run()
+
+    mode = (os.getenv("MODE", "SSE"))
+ 
+    if mode == "sse":
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+            
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in SSE mode on http://{host}:{port}")
+        log.info(f"SSE endpoint: http://{host}:{port}/sse")
+        log.info(f"Messages endpoint: http://{host}:{port}/messages")
+            
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            access_log=False,
+            log_level="info",
+            use_colors=False
+        )
+    elif mode == "http":
+        port = int(os.getenv("MCP_HTTP_PORT", "9004"))
+        host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
+        
+        log.info(f"Starting file_export_mcp version {SCRIPT_VERSION}")
+        log.info(f"Starting file_export_mcp in http mode on http://{host}:{port}")
+        log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
+
+        mcp.run(
+            transport="streamable-http"
+        )
