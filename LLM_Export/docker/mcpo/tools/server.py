@@ -1,6 +1,10 @@
+import sys
 import os
 import re
 import json
+# Ajout du répertoire parent au chemin pour permettre les imports relatifs
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import uuid
 import shutil
 import tarfile
@@ -170,15 +174,15 @@ mcp = FastMCP("file_export")
 async def full_context_document(
     file_id: str,
     file_name: str,
-    mcpo_headers: dict | None = None,
+    headers: dict | None = None,
     ctx: Context[ServerSession, None] | None = None
 ) -> dict:
     """
     Inspect a document structure (docx/xlsx/pptx) and return a unified JSON representation.
     """
     user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
+    if headers:
+        auth_header = headers.get("authorization")
         if auth_header:
             user_token = auth_header
             log.info("Using authorization from MCPO forwarded headers")
@@ -373,7 +377,7 @@ async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict | list,
-    mcpo_headers: dict | None = None,
+    headers: dict | None = None,
     ctx: Context[ServerSession, None] | None = None
 ) -> dict:
     """
@@ -382,8 +386,8 @@ async def edit_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
     user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
+    if headers:
+        auth_header = headers.get("authorization")
         if auth_header:
             user_token = auth_header
             log.info("Using authorization from MCPO forwarded headers")
@@ -762,7 +766,7 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
-    mcpo_headers: dict = None,
+    headers: dict = None,
     ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
@@ -786,8 +790,8 @@ async def review_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
     user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
+    if headers:
+        auth_header = headers.get("authorization")
         if auth_header:
             user_token = auth_header
             logging.info("✅ Using authorization from MCPO forwarded headers")

@@ -1,6 +1,10 @@
+import sys
 import os
 import re
 import json
+# Ajout du répertoire parent au chemin pour permettre les imports relatifs
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import uuid
 import shutil
 import tarfile
