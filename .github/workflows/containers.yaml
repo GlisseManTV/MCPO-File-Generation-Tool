@@ -1,11 +1,9 @@
 name: Build & Push GHCR images
-
 on:
   push:
     branches: [ master, main, dev, alpha, beta, release-candidate ]
     tags: [ 'v*' ]
   workflow_dispatch:
-
 permissions:
   contents: read
   packages: write
@@ -13,27 +11,71 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: file-export-server
-            context: LLM_Export/docker/file_server
-            dockerfile: LLM_Export/docker/file_server/dockerfile.server
-            image: ghcr.io/${{ github.repository_owner }}/owui-file-export-server
-          - name: mcpo
-            context: LLM_Export/docker/mcpo
-            dockerfile: LLM_Export/docker/mcpo/dockerfile
-            image: ghcr.io/${{ github.repository_owner }}/owui-mcpo
-          - name: sse_http
-            context: LLM_Export/docker/sse_http
-            dockerfile: LLM_Export/docker/sse_http/dockerfile
-            image: ghcr.io/${{ github.repository_owner }}/file-gen-sse-http
+    
+    # 🔍 Mapping des tags vers les branches cibles
+    env:
+      DEFAULT_BRANCH: ${{ github.ref_name }}
+    
     steps:
+      # 📦 Étape 1 : Checkout du repo avec tous les historiques et sous-modules
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: true
-
+      
+      # 🎯 Étape 2 : Déterminer la branche cible depuis le tag (si applicable)
+      - name: Map tag to target branch
+        id: branch_map
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            echo "📦 Tag détecté : $TAG"
+            
+            # Mapping tag → branche via pattern matching
+            case "$TAG" in
+              *'-alpha'*|*'-a'*)
+                TARGET_BRANCH="alpha"
+                ;;
+              *'-beta'*|*'-b'*)
+                TARGET_BRANCH="beta"
+                ;;
+              *'-rc'*|*'-release-candidate'*)
+                TARGET_BRANCH="release-candidate"
+                ;;
+              *'-dev'*|*'-d'*)
+                TARGET_BRANCH="dev"
+                ;;
+              *)
+                # Tag sans suffixe → master par défaut
+                TARGET_BRANCH="master"
+                echo "⚠️  Tag non standard ($TAG) → branch by default: $TARGET_BRANCH"
+                ;;
+            esac
+            
+            echo "🎯 Branche cible déterminée : $TARGET_BRANCH"
+            echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
+          else
+            # Push normal sur une branche → utiliser la même branche
+            TARGET_BRANCH="${{ github.ref_name }}"
+            echo "🎯 Branch push directe : $TARGET_BRANCH"
+            echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
+          fi
+      
+      # 🔄 Étape 3 : Fetch et checkout de la bonne branche
+      - name: Checkout target branch
+        run: |
+          TARGET_BRANCH="${{ steps.branch_map.outputs.target_branch }}"
+          echo "📥 Récupération de la branche cible : $TARGET_BRANCH"
+          
+          # Fetch la branche depuis le remote
+          git fetch origin "$TARGET_BRANCH:$TARGET_BRANCH" || true
+          
+          # Checkout vers cette branche (pour s'assurer qu'on build sur la bonne)
+          git checkout "$TARGET_BRANCH" 2>/dev/null || echo "⚠️  Branch $TARGET_BRANCH non trouvée, continuation..."
+          
+          echo "✅ Position actuelle : $(git rev-parse --abbrev-ref HEAD)"
+      
+      # 🔍 Étape 4 : Sanity check des paths (pour debugging)
       - name: Sanity check paths
         run: |
           pwd
@@ -44,17 +86,22 @@ jobs:
           ls -la LLM_Export/docker/file_server || true
           ls -la LLM_Export/docker/mcpo || true
           ls -la LLM_Export/docker/sse_http || true
-
+      
+      # 🐳 Étape 5 : Setup QEMU (pour multi-architecture)
       - uses: docker/setup-qemu-action@v3
+      
+      # 🐳 Étape 6 : Setup Buildx (pour multi-platform build)
       - uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
+      
+      # 🔑 Étape 7 : Login à GHCR
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
+      
+      # 🏷️ Étape 8 : Metadata Docker (tags & labels)
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -63,12 +110,13 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
             type=ref,event=tag
+            # Tags branch-specific dynamiques
             type=raw,value=alpha-latest,enable=${{github.ref == 'refs/heads/alpha'}}
             type=raw,value=beta-latest,enable=${{github.ref == 'refs/heads/beta'}}
             type=raw,value=dev-latest,enable=${{github.ref == 'refs/heads/dev'}}
             type=raw,value=rc-latest,enable=${{github.ref == 'refs/heads/release-candidate'}}
-
-
+      
+      # 🏗️ Étape 9 : Build & Push pour chaque service (matrix)
       - name: Build & Push (${{ matrix.name }})
         uses: docker/build-push-action@v6
         with:
@@ -78,3 +126,24 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+    
+    # 🎲 Matrice de services à build
+    strategy:
+      matrix:
+        include:
+          - name: file-export-server
+            context: LLM_Export/docker/file_server
+            dockerfile: LLM_Export/docker/file_server/dockerfile.server
+            image: ghcr.io/${{ github.repository_owner }}/owui-file-export-server
+          
+          - name: mcpo
+            context: LLM_Export/docker/mcpo
+            dockerfile: LLM_Export/docker/mcpo/dockerfile
+            image: ghcr.io/${{ github.repository_owner }}/owui-mcpo
+          
+          - name: sse_http
+            context: LLM_Export/docker/sse_http
+            dockerfile: LLM_Export/docker/sse_http/dockerfile
+            image: ghcr.io/${{ github.repository_owner }}/file-gen-sse-http
