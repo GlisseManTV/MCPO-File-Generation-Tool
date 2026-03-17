@@ -58,10 +58,10 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount 
 from starlette.responses import Response, JSONResponse 
 
-SCRIPT_VERSION = "0.8.0-alpha3"
+SCRIPT_VERSION = "0.9.0-fc1"
 
 URL = os.getenv('OWUI_URL')
-TOKEN = os.getenv('JWT_SECRET')
+TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
 
 PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 

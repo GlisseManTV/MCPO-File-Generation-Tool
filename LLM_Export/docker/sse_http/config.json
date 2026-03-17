@@ -2,7 +2,7 @@
   "mcpServers": {
     "file_export": {
       "command": "python3.12",
-      "args": ["-m", "tools.file_export_mcp"],
+      "args": ["-m", "tools.server"],
       "env": {
         "PYTHONPATH": "/rootPath"
       },

@@ -1,3 +1,14 @@
+"""
+DEPRECATED COPY - Do not use.
+
+This is an archived copy of the previous monolithic implementation of the File Export MCP.
+It has been replaced by a modular architecture:
+- Core utilities in utils/* (pptx/docx/xlsx/pdf treatments, file operations, image search)
+- MCP tools layer in tools/server.py (create_file, generate_and_archive, full_context_document, edit_document, review_document)
+
+Please update any references to use tools/server.py. This file will be removed in a future release.
+"""
+
 import re
 import os
 import ast
@@ -48,22 +59,15 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-#NonDockerImport
-import asyncio
-import uvicorn
-from typing import Any
-from mcp.server.sse import SseServerTransport
-from starlette.requests import Request
-from starlette.applications import Starlette
-from starlette.routing import Route, Mount
-from starlette.responses import Response, JSONResponse, StreamingResponse
-
-SCRIPT_VERSION = "0.8.0-alpha3"
+SCRIPT_VERSION = "0.9.0-fc1"
 
 URL = os.getenv('OWUI_URL')
-TOKEN = os.getenv('JWT_SECRET')
+TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
 
-PERSISTENT_FILES = os.getenv("PERSISTENT_FILES", "false")
+def _env_bool(val: str | None) -> bool:
+    return str(val).strip().lower() in ("1", "true", "yes", "y", "on") if val is not None else False
+
+PERSISTENT_FILES = _env_bool(os.getenv("PERSISTENT_FILES", "false"))
 FILES_DELAY = int(os.getenv("FILES_DELAY", 60)) 
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
@@ -306,11 +310,7 @@ log = logging.getLogger("file_export_mcp")
 log.setLevel(_resolve_log_level(LOG_LEVEL_ENV))
 log.info("Effective LOG_LEVEL -> %s", logging.getLevelName(log.level))
 
-mcp = FastMCP(
-    name = "file_export",
-    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
-    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
-)
+mcp = FastMCP("file_export")
 
 def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
     total_chars = sum(len(line) for line in content_list)
@@ -482,20 +482,20 @@ def render_html_elements(soup):
             elif tag_name == "p":
                 imgs = elem.find_all("img")
                 if imgs:
-                    for img_tag in imgs:
-                        src = img_tag.get("src")
-                        alt = img_tag.get("alt", "[Image]")
+                    for img in imgs:
+                        src = img.get("src")
+                        alt = img.get("alt", "[Image]")
                         try:
                             if src and src.startswith("http"):
                                 log.debug(f"Downloading image from URL: {src}")
                                 response = requests.get(src)
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
-                                img = ReportLabImage(img_data, width=200, height=150)
+                                img_obj = ReportLabImage(img_data, width=200, height=150)  # ✅ CORRIGÉ
                             else:
                                 log.debug(f"Loading local image: {src}")
-                                img = ReportLabImage(src, width=200, height=150)
-                            story.append(img)
+                                img_obj = ReportLabImage(src, width=200, height=150)  # ✅ CORRIGÉ
+                            story.append(img_obj)
                             story.append(Spacer(1, 10))
                         except Exception as e:
                             log.error(f"Error loading image {src}: {e}")
@@ -549,9 +549,9 @@ def render_html_elements(soup):
                                 log.debug(f"Image download response status: {response.status_code}")
                                 response.raise_for_status()
                                 img_data = BytesIO(response.content)
-                                img = ReportLabImage(img_data, width=200, height=150)
+                                img_obj = ReportLabImage(img_data, width=200, height=150)
                                 log.debug("Adding ReportLab Image object to story (Unsplash)")
-                                story.append(img)
+                                story.append(img_obj)
                                 story.append(Spacer(1, 10))
                             else:
                                 log.warning(f"No image found for query: {query}")
@@ -563,16 +563,16 @@ def render_html_elements(soup):
                             log.debug(f"Image download response status: {response.status_code}")
                             response.raise_for_status()
                             img_data = BytesIO(response.content)
-                            img = ReportLabImage(img_data, width=200, height=150)
+                            img_obj = ReportLabImage(img_data, width=200, height=150)
                             log.debug("Adding ReportLab Image object to story (Direct URL)")
-                            story.append(img)
+                            story.append(img_obj)
                             story.append(Spacer(1, 10))
                         else:
                             log.debug(f"Loading local image: {src}")
                             if os.path.exists(src):
-                                img = ReportLabImage(src, width=200, height=150)
+                                img_obj = ReportLabImage(src, width=200, height=150)
                                 log.debug("Adding ReportLab Image object to story (Local)")
-                                story.append(img)
+                                story.append(img_obj)
                                 story.append(Spacer(1, 10))
                             else:
                                log.error(f"Local image file not found: {src}")
@@ -1298,6 +1298,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
     """
     Download a file from OpenWebUI server.
     """
+   
     url = f"{URL}/api/v1/files/{file_id}/content"
     headers = {
         'Authorization': token,
@@ -1312,7 +1313,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
         return BytesIO(response._content)
 
 def _extract_paragraph_style_info(para):
-    """Extrait les informations de style détaillées d'un paragraphe"""
+    """Extract detailed style information from a paragraph"""
     if not para.runs:
         return {}
     
@@ -1327,7 +1328,7 @@ def _extract_paragraph_style_info(para):
     }
 
 def _extract_cell_style_info(cell):
-    """Extrait les informations de style d'une cellule"""
+    """Extract style information from a cell"""
     return {
         "style": cell.style.name if hasattr(cell, 'style') else None,
         "text_alignment": cell.paragraphs[0].alignment if cell.paragraphs else None
@@ -1429,7 +1430,8 @@ def _apply_run_formatting(run, format_dict):
 async def full_context_document(
     file_id: str,
     file_name: str,
-    ctx: Context[ServerSession, None]
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -1437,15 +1439,18 @@ async def full_context_document(
     Returns:
         dict: A JSON object with the structure of the document.
     """
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹNo forwarded headers, using admin TOKEN fallback")
     try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        user_token=bearer_token
-        logging.info(f"Recieved authorization header!")        
-    except:
-        user_token=TOKEN
-        logging.error(f"Error retrieving authorization header use admin fallback")
-    try:
-        user_file = download_file(file_id=file_id,token=user_token)
+        user_file = download_file(file_id=file_id,token=user_token) 
 
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
@@ -1589,6 +1594,8 @@ async def full_context_document(
                             "paragraphs": paragraphs
                         })
                         continue
+
+                    # --- NEW: table extraction ---
                     if getattr(shape, "has_table", False):
                         tbl = shape.table
                         rows = []
@@ -1657,6 +1664,7 @@ def add_auto_sized_review_comment(cell, text, author="AI Reviewer"):
     comment.width = width
     comment.height = height
     cell.comment = comment
+
 
 def _snapshot_runs(p):
     """Return a list of {'text': str, 'font': {...}} for each run in a paragraph."""
@@ -1959,13 +1967,13 @@ def _set_table_from_matrix(shape, data):
             tbl.cell(r, c).text = ""  # clear
             tbl.cell(r, c).text = "" if val is None else str(val)
 
-
 @mcp.tool()
 async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
-    ctx: Context[ServerSession, None]
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -1981,8 +1989,10 @@ async def edit_document(
 
     ### PPTX (PowerPoint)
     - ops: 
+        - ["insert_after", <slide_id>, "nK"]
         - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
-        - ["insert_after", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
+        - ["insert_before", <slide_id>, "nK"]
+        - ["insert_before", <slide_id>, "nK", {"layout_like_sid": <slide_id>}]
         - ["delete_slide", slide_id]
     - content_edits:
         - Edit a text shape
@@ -1993,7 +2003,6 @@ async def edit_document(
             ["nK:slot:title", text_or_list]
             ["nK:slot:body", text_or_list]
             ["nK:slot:table", [[row1_col1, row1_col2], [row2_col1, row2_col2], ...]]
-
 
     ### DOCX (Word)
     - ops:
@@ -2022,15 +2031,18 @@ async def edit_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        logging.info(f"Recieved authorization header!")
-        user_token=bearer_token
-    except:
-        logging.error(f"Error retrieving authorization header use admin fallback")
-        user_token=TOKEN
-    try:
-        user_file = download_file(file_id=file_id, token=user_token)
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2070,6 +2082,16 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
           
                 new_refs = {}
                 
@@ -2182,6 +2204,16 @@ async def edit_document(
                 ws = wb.active
 
                 edit_items = edits.get("content_edits", []) if isinstance(edits, dict) and "content_edits" in edits else edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
           
                 for index, new_text in edit_items:
                     try:
@@ -2220,6 +2252,16 @@ async def edit_document(
                 else:
                     ops = []
                     edit_items = edits
+                # Defensive normalization: accept array of objects {target, value}
+                try:
+                    if isinstance(edit_items, list) and (len(edit_items) == 0 or isinstance(edit_items[0], dict)):
+                        edit_items = [
+                            [item.get("target"), item.get("value")]
+                            for item in (edit_items or [])
+                            if isinstance(item, dict) and "target" in item and "value" in item
+                        ]
+                except Exception:
+                    pass
                 new_ref_needs = _collect_needs(edit_items)
                 order = [int(s.slide_id) for s in prs.slides]
                 slides_by_id = {int(s.slide_id): s for s in prs.slides}
@@ -2407,7 +2449,7 @@ async def edit_document(
             indent=4,
             ensure_ascii=False
         )
-
+    
 def _get_pptx_namespaces():
     """Returns XML namespaces for PowerPoint"""
     return {
@@ -2580,7 +2622,8 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
-    ctx: Context[ServerSession, None]
+    mcpo_headers: dict = None,
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -2602,16 +2645,18 @@ async def review_document(
     """
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
-
+    user_token = TOKEN
+    if mcpo_headers:
+        auth_header = mcpo_headers.get("authorization")
+        if auth_header:
+            user_token = auth_header
+            logging.info("✅ Using authorization from MCPO forwarded headers")
+        else:
+            logging.warning("⚠️ Forwarded headers present but no authorization found")
+    else:
+        logging.info("ℹ️ No forwarded headers, using admin TOKEN fallback")
     try:
-        bearer_token = ctx.request_context.request.headers.get("authorization")
-        logging.info(f"Recieved authorization header!")
-        user_token=bearer_token
-    except:
-        logging.error(f"Error retrieving authorization header use admin fallback")
-        user_token=TOKEN
-    try:
-        user_file = download_file(file_id=file_id, token=user_token)
+        user_file = download_file(file_id, token=user_token)
         if isinstance(user_file, dict) and "error" in user_file:
             return json.dumps(user_file, indent=4, ensure_ascii=False)
 
@@ -2620,6 +2665,24 @@ async def review_document(
 
         reviewed_path = None
         response = None
+
+        # Normalize to list of objects {index, comment}
+        norm_comments: List[ReviewComment] = []
+        try:
+            if isinstance(review_comments, list):
+                if len(review_comments) == 0:
+                    norm_comments = []
+                elif isinstance(review_comments[0], dict):
+                    for item in review_comments:
+                        if isinstance(item, dict) and "index" in item and "comment" in item:
+                            norm_comments.append({"index": item["index"], "comment": str(item["comment"])})
+                else:
+                    # Legacy: [[index, comment], ...] or tuples
+                    for item in review_comments:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            norm_comments.append({"index": item[0], "comment": str(item[1])})
+        except Exception:
+            pass
 
         if file_type == "docx":
             try:
@@ -2635,7 +2698,9 @@ async def review_document(
                     para_by_xml_id[para_id_counter] = para
                     para_id_counter += 1
 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     if isinstance(index, int) and 0 <= index < len(paragraphs):
                         para = paragraphs[index]
                         if para.runs:
@@ -2693,7 +2758,9 @@ async def review_document(
                 wb = load_workbook(user_file)
                 ws = wb.active
 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     try:
                         if isinstance(index, str) and re.match(r"^[A-Z]+[0-9]+$", index.strip().upper()):
                             cell_ref = index.strip().upper()
@@ -2733,7 +2800,9 @@ async def review_document(
                 
                 comments_by_slide = {}
                 
-                for index, comment_text in review_comments:
+                for rc in norm_comments:
+                    index = rc["index"]
+                    comment_text = rc["comment"]
                     slide_num = None
                     slide_id = None
                     
@@ -2986,10 +3055,34 @@ async def handle_sse(request: Request) -> Response:
                                                 "description": "Document title (for docx, pptx, xlsx, pdf)"
                                             },
                                             "content": {
-                                                "description": "Content varies by format. For pdf/docx: array of objects with type/text. For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
+                                                "description": "Content varies by format. For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
                                                 "oneOf": [
-                                                    {"type": "array"},
-                                                    {"type": "string"}
+                                                    {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "anyOf": [
+                                                                { "type": "string" },
+                                                                { "type": "number" },
+                                                                { "type": "boolean" },
+                                                                { "type": "object" },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "anyOf": [
+                                                                            { "type": "string" },
+                                                                            { "type": "number" },
+                                                                            { "type": "boolean" },
+                                                                            { "type": "object" },
+                                                                            { "type": "null" }
+                                                                        ]
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    { "type": "string" },
+                                                    { "type": "object" },
+                                                    { "type": "null" }
                                                 ]
                                             },
                                             "slides_data": {
@@ -3043,10 +3136,68 @@ async def handle_sse(request: Request) -> Response:
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "format": {"type": "string"},
-                                                "filename": {"type": "string"},
-                                                "content": {"type": "array"},
-                                                "title": {"type": "string"}
+                                                "format": { "type": "string" },
+                                                "filename": { "type": "string" },
+                                                "content": {
+                                                    "description": "For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For others: string/object",
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "anyOf": [
+                                                                    { "type": "string" },
+                                                                    { "type": "number" },
+                                                                    { "type": "boolean" },
+                                                                    { "type": "object" },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "anyOf": [
+                                                                                { "type": "string" },
+                                                                                { "type": "number" },
+                                                                                { "type": "boolean" },
+                                                                                { "type": "object" },
+                                                                                { "type": "null" }
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        { "type": "string" },
+                                                        { "type": "object" },
+                                                        { "type": "null" }
+                                                    ]
+                                                },
+                                                "title": { "type": "string" },
+                                                "slides_data": {
+                                                    "type": "array",
+                                                    "description": "For pptx format only: array of slide objects",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "title": { "type": "string" },
+                                                            "content": {
+                                                                "type": "array",
+                                                                "items": { "type": "string" }
+                                                            },
+                                                            "image_query": {
+                                                                "type": "string",
+                                                                "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                            },
+                                                            "image_position": {
+                                                                "type": "string",
+                                                                "enum": ["left", "right", "top", "bottom"],
+                                                                "description": "Position of the image on the slide"
+                                                            },
+                                                            "image_size": {
+                                                                "type": "string",
+                                                                "enum": ["small", "medium", "large"],
+                                                                "description": "Size of the image"
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             },
                                             "required": ["format"]
                                         }
@@ -3109,26 +3260,40 @@ async def handle_sse(request: Request) -> Response:
                                             },
                                             "content_edits": {
                                                 "type": "array",
-                                                "description": "Content updates as [target, new_text] pairs. For PPTX: ['sid:<slide_id>/shid:<shape_id>', text], ['nK:slot:title', text], ['nK:slot:body', text]. For DOCX: ['pid:<para_xml_id>', text], ['tid:<table_xml_id>/cid:<cell_xml_id>', text], ['nK', text]. For XLSX: ['A1', value], ['B5', value]",
+                                                "description": "Content updates. Prefer object items: {target, value}. For PPTX: target 'sid:<slide_id>/shid:<shape_id>' or 'nK:slot:title'/'body'/'table'. For DOCX: 'pid:<para_xml_id>' or 'tid:<table_xml_id>/cid:<cell_xml_id>' or 'nK'. For XLSX: 'A1', 'B5'.",
                                                 "items": {
-                                                    "type": "array",
-                                                    "minItems": 2,
-                                                    "maxItems": 2,
-                                                    "items": [
-                                                        {
+                                                    "type": "object",
+                                                    "required": ["target", "value"],
+                                                    "properties": {
+                                                        "target": {
                                                             "type": "string",
                                                             "description": "Target reference (element ID or cell ref)"
                                                         },
-                                                        {
-                                                            "description": "New content (text string or array of strings for lists)",
+                                                        "value": {
+                                                            "description": "New content (string, number, boolean, array of strings, or 2D array for tables)",
                                                             "oneOf": [
                                                                 {"type": "string"},
-                                                                {"type": "array", "items": {"type": "string"}},
                                                                 {"type": "number"},
-                                                                {"type": "boolean"}
+                                                                {"type": "boolean"},
+                                                                {"type": "array", "items": {"type": "string"}},
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "oneOf": [
+                                                                                {"type": "string"},
+                                                                                {"type": "number"},
+                                                                                {"type": "boolean"},
+                                                                                {"type": "null"}
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                }
                                                             ]
                                                         }
-                                                    ]
+                                                    },
+                                                    "additionalProperties": False
                                                 }
                                             }
                                         }
@@ -3139,7 +3304,7 @@ async def handle_sse(request: Request) -> Response:
                         },
                         {
                             "name": "review_document",
-                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel files, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word/PowerPoint, use integer indices.",
+                            "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word: use either an integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: use either an integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>' to target a shape).",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -3151,28 +3316,28 @@ async def handle_sse(request: Request) -> Response:
                                         "type": "string",
                                         "description": "The name of the file with extension"
                                     },
-                                    "review_comments": {
-                                        "type": "array",
-                                        "description": "Array of [index, comment_text] tuples. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index. For PowerPoint: integer slide index.",
-                                        "items": {
-                                            "type": "array",
-                                            "minItems": 2,
-                                            "maxItems": 2,
-                                            "items": [
-                                                {
-                                                    "description": "Index/reference: For Excel use cell reference (e.g., 'A1'), for Word/PowerPoint use integer",
-                                                    "oneOf": [
-                                                        {"type": "string"},
-                                                        {"type": "integer"}
-                                                    ]
-                                                },
-                                                {
-                                                    "type": "string",
-                                                    "description": "Comment or correction text"
+                                            "review_comments": {
+                                                "type": "array",
+                                                "description": "Array of objects {index, comment}. For Excel: index must be a cell reference string like 'A1', 'B3'. For Word: integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>').",
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["index", "comment"],
+                                                    "properties": {
+                                                        "index": {
+                                                            "description": "Index/reference: For Excel use cell reference (e.g., 'A1'); for Word/PowerPoint use integer or an id key string like 'pid:<para_xml_id>' / 'sid:<slide_id>'",
+                                                            "oneOf": [
+                                                                {"type": "string"},
+                                                                {"type": "integer"}
+                                                            ]
+                                                        },
+                                                        "comment": {
+                                                            "type": "string",
+                                                            "description": "Comment or correction text"
+                                                        }
+                                                    },
+                                                    "additionalProperties": False
                                                 }
-                                            ]
-                                        }
-                                    }
+                                            }
                                 },
                                 "required": ["file_id", "file_name", "review_comments"]
                             }
@@ -3225,6 +3390,19 @@ async def handle_sse(request: Request) -> Response:
 
                     elif tool_name == "edit_document":
                         arguments.setdefault("ctx", ctx)
+                        # Normalize 'edits.content_edits' to list of [target, value] for backward compatibility
+                        try:
+                            edits_arg = arguments.get("edits")
+                            if isinstance(edits_arg, dict):
+                                ce = edits_arg.get("content_edits")
+                                if isinstance(ce, list) and (len(ce) == 0 or isinstance(ce[0], dict)):
+                                    edits_arg["content_edits"] = [
+                                        [item.get("target"), item.get("value")]
+                                        for item in (ce or [])
+                                        if isinstance(item, dict) and "target" in item and "value" in item
+                                    ]
+                        except Exception:
+                            pass
                         result = await edit_document(**arguments)
                         response["result"] = {
                             "content": [
@@ -3238,6 +3416,17 @@ async def handle_sse(request: Request) -> Response:
 
                     elif tool_name == "review_document":
                         arguments.setdefault("ctx", ctx)
+                        # Normalize 'review_comments' to list of [index, comment] for backward compatibility
+                        try:
+                            rc = arguments.get("review_comments")
+                            if isinstance(rc, list) and (len(rc) == 0 or isinstance(rc[0], dict)):
+                                arguments["review_comments"] = [
+                                    [item.get("index"), item.get("comment")]
+                                    for item in (rc or [])
+                                    if isinstance(item, dict) and "index" in item and "comment" in item
+                                ]
+                        except Exception:
+                            pass
                         result = await review_document(**arguments)
                         response["result"] = {
                             "content": [
