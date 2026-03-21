@@ -48,6 +48,13 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
+from minio_storage import (
+    _is_minio_enabled as _minio_enabled,
+    upload_file as minio_upload,
+    public_url_for as minio_public_url,
+    schedule_cleanup as minio_schedule_cleanup,
+)
+
 #NonDockerImport
 import asyncio
 import uvicorn
@@ -214,6 +221,9 @@ def search_local_sd(query: str):
         with open(filepath, "wb") as f:
             f.write(image_data)
 
+        if _minio_enabled():
+            minio_upload(filepath, f"{os.path.basename(folder_path)}/{filename}")
+
         return _public_url(folder_path, filename)
 
     except requests.exceptions.Timeout:
@@ -331,6 +341,8 @@ def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
 
 def _public_url(folder_path: str, filename: str) -> str:
     """Build a stable public URL for a generated file."""
+    if _minio_enabled():
+        return minio_public_url(folder_path, filename)
     folder = os.path.basename(folder_path).lstrip("/")
     name = filename.lstrip("/")
     return f"{BASE_URL}/{folder}/{name}"
@@ -611,11 +623,15 @@ def render_html_elements(soup):
     return story
 
 def _cleanup_files(folder_path: str, delay_minutes: int):
+    if _minio_enabled():
+        minio_schedule_cleanup(folder_path, delay_minutes)
+        return
+
     def delete_files():
         time.sleep(delay_minutes * 60)
         try:
             import shutil
-            shutil.rmtree(folder_path) 
+            shutil.rmtree(folder_path)
             log.debug(f"Folder {folder_path} deleted.")
         except Exception as e:
             logging.error(f"Error deleting files : {e}")
@@ -2922,6 +2938,9 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
         use_filename = filename or f"export.{format_type or 'txt'}"
         result = _create_raw_file(content if content is not None else "", use_filename, folder_path=folder_path)
 
+    if _minio_enabled():
+        minio_upload(result["path"], f"{os.path.basename(folder_path)}/{os.path.basename(result['path'])}")
+
     if not persistent:
         _cleanup_files(folder_path, FILES_DELAY)
 
@@ -2977,6 +2996,9 @@ async def generate_and_archive(files_data: list[dict], archive_format: str = "zi
         with zipfile.ZipFile(archive_path, 'w') as zipf:
             for p in generated_paths:
                 zipf.write(p, os.path.relpath(p, folder_path))
+
+    if _minio_enabled():
+        minio_upload(archive_path, f"{os.path.basename(folder_path)}/{archive_filename}")
 
     if not persistent:
         _cleanup_files(folder_path, FILES_DELAY)

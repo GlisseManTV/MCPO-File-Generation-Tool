@@ -1,0 +1,189 @@
+# ===========================================================================
+# Unified Docker Compose — pick your setup via profiles:
+#
+#   MCPO only:               docker compose --profile mcpo up -d
+#   SSE/HTTP only:            docker compose --profile sse-http up -d
+#   MCPO + MinIO:             docker compose --profile mcpo --profile minio up -d
+#   SSE/HTTP + MinIO:         docker compose --profile sse-http --profile minio up -d
+#
+# To build locally instead of pulling from ghcr.io:
+#   docker compose --profile <profile> build
+#   docker compose --profile <profile> up -d
+#
+# To use MinIO, also uncomment the STORAGE_BACKEND and MINIO_* env vars
+# on both file-export-server and your chosen MCP server.
+# ===========================================================================
+
+version: "3.9"
+services:
+  # ---------------------------------------------------------------------------
+  # File export server — always required
+  # ---------------------------------------------------------------------------
+  file-export-server:
+    image: ghcr.io/glissemantv/owui-file-export-server:latest
+    build:
+      context: ../LLM_Export/docker/file_server
+      dockerfile: dockerfile.server
+    container_name: file-export-server
+    profiles:
+      - file-export-server
+    environment:
+      # Required
+      - FILE_EXPORT_DIR=/output
+      # MinIO / S3 Storage (uncomment when using --profile minio)
+      - STORAGE_BACKEND=minio
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_PUBLIC_ENDPOINT=http://localhost:9000
+      # - MINIO_BUCKET=file-exports
+      # - MINIO_REGION=us-east-1
+      # - MINIO_SECURE=false
+    ports:
+      - "9003:9003"
+    volumes:
+      - /your/export-data:/output
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage (profile: minio)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    profiles:
+      - minio
+    command: server /data --console-address ":9001"
+    environment:
+      # Required
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001" # MinIO web console
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MCPO server — builtin MCPO wrapper (profile: mcpo)
+  # ---------------------------------------------------------------------------
+  owui-mcpo:
+    image: ghcr.io/glissemantv/owui-mcpo:latest
+    build:
+      context: ../LLM_Export/docker/mcpo
+      dockerfile: dockerfile
+    container_name: owui-mcpo
+    profiles:
+      - mcpo
+    environment:
+      # Required
+      - FILE_EXPORT_BASE_URL=http://file-export-server:9003/files
+      - FILE_EXPORT_DIR=/output
+      # File management
+      # - PERSISTENT_FILES=false
+      # - FILES_DELAY=60
+      # Logging
+      # - LOG_LEVEL=INFO
+      # - LOG_FORMAT=%(asctime)s %(levelname)s %(name)s - %(message)s
+      # MCPO
+      # - MCPO_API_KEY=top-secret
+      # Image sources (pick one via IMAGE_SOURCE)
+      # - IMAGE_SOURCE=unsplash
+      # - UNSPLASH_ACCESS_KEY=your-unsplash-access-key
+      # - PEXELS_ACCESS_KEY=your-pexels-access-key
+      # Local Stable Diffusion (only if IMAGE_SOURCE=local_sd)
+      # - LOCAL_SD_URL=http://localhost:7860
+      # - LOCAL_SD_USERNAME=local_user
+      # - LOCAL_SD_PASSWORD=local_password
+      # - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
+      # - LOCAL_SD_STEPS=20
+      # - LOCAL_SD_WIDTH=512
+      # - LOCAL_SD_HEIGHT=512
+      # - LOCAL_SD_CFG_SCALE=1.5
+      # - LOCAL_SD_SCHEDULER=Karras
+      # - LOCAL_SD_SAMPLE=Euler a
+      # Templates
+      # - DOCS_TEMPLATE_DIR=/docs_templates
+      # Open WebUI integration (required for edit/review)
+      # - OWUI_URL=http://localhost:3000
+      # - JWT_TOKEN=top-secret
+      # MinIO / S3 Storage (uncomment when using --profile minio)
+      # - STORAGE_BACKEND=minio
+      # - MINIO_ENDPOINT=http://minio:9000
+      # - MINIO_ACCESS_KEY=minioadmin
+      # - MINIO_SECRET_KEY=minioadmin
+      # - MINIO_PUBLIC_ENDPOINT=http://localhost:9000
+      # - MINIO_BUCKET=file-exports
+      # - MINIO_REGION=us-east-1
+      # - MINIO_SECURE=false
+      # - MINIO_PRESIGNED_EXPIRY=3600
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      - /your/export-data:/output
+
+  # ---------------------------------------------------------------------------
+  # SSE / Streamable HTTP server — direct MCP transport (profile: sse-http)
+  # Endpoints: SSE => /sse, Streamable HTTP => /mcp
+  # ---------------------------------------------------------------------------
+  file-gen-sse-http:
+    image: ghcr.io/glissemantv/file-gen-sse-http:latest
+    build:
+      context: ../LLM_Export/docker/sse_http
+      dockerfile: dockerfile
+    container_name: file-gen-sse-http
+    profiles:
+      - sse-http
+    environment:
+      # Required
+      - FILE_EXPORT_BASE_URL=http://file-export-server:9003/files
+      - FILE_EXPORT_DIR=/output
+      # File management
+      # - PERSISTENT_FILES=false
+      # - FILES_DELAY=60
+      # Logging
+      # - LOG_LEVEL=INFO
+      # - LOG_FORMAT=%(asctime)s %(levelname)s %(name)s - %(message)s
+      # SSE/HTTP mode — "sse" for SSE transport, "http" for Streamable HTTP
+      - MODE=http
+      # - MCP_HTTP_PORT=9004
+      # - MCP_HTTP_HOST=0.0.0.0
+      # Image sources (pick one via IMAGE_SOURCE)
+      # - IMAGE_SOURCE=unsplash
+      # - UNSPLASH_ACCESS_KEY=your-unsplash-access-key
+      # - PEXELS_ACCESS_KEY=your-pexels-access-key
+      # Local Stable Diffusion (only if IMAGE_SOURCE=local_sd)
+      # - LOCAL_SD_URL=http://localhost:7860
+      # - LOCAL_SD_USERNAME=local_user
+      # - LOCAL_SD_PASSWORD=local_password
+      # - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
+      # - LOCAL_SD_STEPS=20
+      # - LOCAL_SD_WIDTH=512
+      # - LOCAL_SD_HEIGHT=512
+      # - LOCAL_SD_CFG_SCALE=1.5
+      # - LOCAL_SD_SCHEDULER=Karras
+      # - LOCAL_SD_SAMPLE=Euler a
+      # Templates
+      # - DOCS_TEMPLATE_DIR=/docs_templates
+      # Open WebUI integration (required for edit/review)
+      # - OWUI_URL=http://localhost:3000
+      # - JWT_TOKEN=top-secret
+      # MinIO / S3 Storage (uncomment when using --profile minio)
+      - STORAGE_BACKEND=minio
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_PUBLIC_ENDPOINT=http://localhost:9000
+      # - MINIO_BUCKET=file-exports
+      # - MINIO_REGION=us-east-1
+      # - MINIO_SECURE=false
+      # - MINIO_PRESIGNED_EXPIRY=3600
+    ports:
+      - "9004:9004"
+    restart: unless-stopped
+    volumes:
+      - /your/export-data:/output
+
+volumes:
+  minio-data:

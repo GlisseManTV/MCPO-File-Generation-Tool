@@ -33,6 +33,7 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
   - [For OWUI-MCPO (Builtin MCPO server)](#for-owui-mcpo-builtin-mcpo-server)
     - [Environment variables](#MCPO-env-variables)
     - [Docker Example](#docker-example)
+  - [MinIO / S3 Storage (Optional)](#minio--s3-storage-optional)
 - [For Python Users](#for-python-users)
   - [PYTHON EXAMPLE](#python-example)
 - [Notes](#notes)
@@ -108,6 +109,17 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
    - `JWT_TOKEN`: Token to access your OWUI instance (only for edit/review used behind an external mcpo server / no longer used if you are SSE/HTTP direct in OWUI)
    - `MODE`: "sse" or "http"
 
+**MinIO / S3 Storage (optional):**
+   - `STORAGE_BACKEND`: Set to `minio` to enable MinIO/S3 storage (default is `local`)
+   - `MINIO_ENDPOINT`: MinIO server URL — the internal/Docker address (e.g., `http://minio:9000`)
+   - `MINIO_PUBLIC_ENDPOINT`: Public-facing MinIO URL for presigned download links (e.g., `http://localhost:9000` locally, or `https://s3.example.com` in production). If unset, presigned URLs use `MINIO_ENDPOINT`.
+   - `MINIO_ACCESS_KEY`: MinIO access key
+   - `MINIO_SECRET_KEY`: MinIO secret key
+   - `MINIO_BUCKET`: Bucket name (default is `file-exports`)
+   - `MINIO_REGION`: Region (default is `us-east-1`)
+   - `MINIO_SECURE`: Set to `true` to use HTTPS (default is `false`)
+   - `MINIO_PRESIGNED_EXPIRY`: Presigned URL expiry in seconds (default is `3600`)
+
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
 
@@ -147,6 +159,17 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
 
+**MinIO / S3 Storage (optional):**
+   - `STORAGE_BACKEND`: Set to `minio` to enable MinIO/S3 storage (default is `local`)
+   - `MINIO_ENDPOINT`: MinIO server URL — the internal/Docker address (e.g., `http://minio:9000`)
+   - `MINIO_PUBLIC_ENDPOINT`: Public-facing MinIO URL for presigned download links (e.g., `http://localhost:9000` locally, or `https://s3.example.com` in production). If unset, presigned URLs use `MINIO_ENDPOINT`.
+   - `MINIO_ACCESS_KEY`: MinIO access key
+   - `MINIO_SECRET_KEY`: MinIO secret key
+   - `MINIO_BUCKET`: Bucket name (default is `file-exports`)
+   - `MINIO_REGION`: Region (default is `us-east-1`)
+   - `MINIO_SECURE`: Set to `true` to use HTTPS (default is `false`)
+   - `MINIO_PRESIGNED_EXPIRY`: Presigned URL expiry in seconds (default is `3600`)
+
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
 
@@ -165,50 +188,66 @@ or
 docker run -d --name file-gen-sse-http --network host -e FILE_EXPORT_BASE_URL=http://192.168.0.100:9003/files -e FILE_EXPORT_DIR=/output -e PERSISTENT_FILES=True -e FILES_DELAY=1 -e LOG_LEVEL=DEBUG -e UNSPLASH_ACCESS_KEY=top-secret -p 8000:9004 -v /path/to/your/export/folder:/output ghcr.io/glissemantv/file-gen-sse-http:latest
 ```
 
-Here is an example of a `docker-compose.yaml` file to run both the file export server and the MCPO server:
-```yaml
-services:
-  file-export-server:
-    image: ghcr.io/glissemantv/owui-file-export-server:latest
-    container_name: file-export-server
-    environment:
-      - FILE_EXPORT_DIR=/output
-    ports:
-      - "9003:9003"
-    volumes:
-      - /your/export-data:/output
+A unified [`Examples/docker-compose.yaml`](Examples/docker-compose.yaml) is available with all services and environment variables. Use **profiles** to pick your setup:
 
-  owui-mcpo:
-    image: ghcr.io/glissemantv/owui-mcpo:latest
-    container_name: owui-mcpo
-    environment:
-      - FILE_EXPORT_BASE_URL=http://file-export-server:9003/files
-      - FILE_EXPORT_DIR=/output
-      - PERSISTENT_FILES=true
-      - FILES_DELAY=1
-      - LOG_LEVEL=INFO
-      - UNSPLASH_ACCESS_KEY=top-secret
-      - IMAGE_SOURCE=local_sd
-      - LOCAL_SD_URL=http://localhost:7860
-      - LOCAL_SD_USERNAME=local_user
-      - LOCAL_SD_PASSWORD=local_password
-      - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
-      - LOCAL_SD_STEPS=20
-      - LOCAL_SD_WIDTH=512
-      - LOCAL_SD_HEIGHT=512
-      - LOCAL_SD_CFG_SCALE=1.5
-      - LOCAL_SD_SCHEDULER=Karras
-      - LOCAL_SD_SAMPLE=Euler a
-      - OWUI_URL=http://localhost:8000
-    ports:
-      - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
-      - "9004:9004" # Use this port instead of the other only if you want to use the SSE HTTP server
-    restart: unless-stopped
-    volumes:
-      - /your/export-data:/output
-    depends_on:
-      - file-export-server
+```bash
+# MCPO only
+docker compose -f Examples/docker-compose.yaml --profile mcpo up -d
+
+# SSE / Streamable HTTP only
+docker compose -f Examples/docker-compose.yaml --profile sse-http up -d
+
+# MCPO + MinIO
+docker compose -f Examples/docker-compose.yaml --profile mcpo --profile minio up -d
+
+# SSE/HTTP + MinIO
+docker compose -f Examples/docker-compose.yaml --profile sse-http --profile minio up -d
 ```
+---
+
+## MinIO / S3 Storage (Optional)
+
+By default, generated files are stored on the local filesystem and served via the built-in file server. You can optionally use **MinIO** (or any S3-compatible storage) as the storage backend for durability and scalability.
+
+### How it works
+
+1. Files are generated locally (required by document libraries)
+2. Files are uploaded to MinIO under a unique folder prefix
+3. Download URLs are **presigned MinIO URLs** instead of local file server URLs
+4. Cleanup deletes from both MinIO and local disk after the configured delay
+5. The file server redirects to MinIO presigned URLs if someone hits the `/files/` endpoint
+
+### MinIO Environment Variables
+
+These variables must be set on **both** the MCP server (MCPO or SSE/HTTP) **and** the file export server:
+
+| Variable | Default | Description |
+|---|---|---|
+| `STORAGE_BACKEND` | `local` | Set to `minio` to enable MinIO storage |
+| `MINIO_ENDPOINT` | _(none)_ | Internal MinIO server URL (e.g., `http://minio:9000`) |
+| `MINIO_PUBLIC_ENDPOINT` | _(none)_ | Public-facing URL for presigned download links (e.g., `http://localhost:9000` locally, `https://s3.example.com` in prod). Falls back to `MINIO_ENDPOINT` if unset. |
+| `MINIO_ACCESS_KEY` | _(none)_ | Access key |
+| `MINIO_SECRET_KEY` | _(none)_ | Secret key |
+| `MINIO_BUCKET` | `file-exports` | Bucket name (auto-created if it doesn't exist) |
+| `MINIO_REGION` | `us-east-1` | Region |
+| `MINIO_SECURE` | `false` | Set to `true` to use HTTPS |
+| `MINIO_PRESIGNED_EXPIRY` | `3600` | Presigned URL expiry in seconds |
+
+### Docker Compose with MinIO
+
+The unified [`Examples/docker-compose.yaml`](Examples/docker-compose.yaml) supports MinIO via profiles. Uncomment the `STORAGE_BACKEND` and `MINIO_*` env vars on both the file-export-server and your chosen MCP server, then add the `minio` profile:
+
+```bash
+docker compose -f Examples/docker-compose.yaml --profile mcpo --profile minio up -d
+# or
+docker compose -f Examples/docker-compose.yaml --profile sse-http --profile minio up -d
+```
+
+This starts a **MinIO container** with a web console at `http://localhost:9001` (login: `minioadmin` / `minioadmin`).
+
+> ✅ The bucket is automatically created on first use — no manual setup required.
+> ✅ Compatible with any S3-compatible storage (AWS S3, DigitalOcean Spaces, etc.) — just change `MINIO_ENDPOINT` and credentials.
+
 ---
 
 
@@ -272,11 +311,21 @@ services:
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
    - `JWT_TOKEN`: JWT token to use for authentication (no default value, mandatory to use edit/review behind an external mcpo tool)  
 
+   **MinIO / S3 Storage (optional):**
+   - `STORAGE_BACKEND`: Set to `minio` to enable MinIO/S3 storage (default is `local`)
+   - `MINIO_ENDPOINT`: MinIO server URL (e.g., `http://localhost:9000`)
+   - `MINIO_PUBLIC_ENDPOINT`: Public-facing MinIO URL for presigned download links (e.g., `http://localhost:9000` locally, or `https://s3.example.com` in production). If unset, presigned URLs use `MINIO_ENDPOINT`.
+   - `MINIO_ACCESS_KEY`: MinIO access key
+   - `MINIO_SECRET_KEY`: MinIO secret key
+   - `MINIO_BUCKET`: Bucket name (default is `file-exports`)
+   - `MINIO_REGION`: Region (default is `us-east-1`)
+   - `MINIO_SECURE`: Set to `true` to use HTTPS (default is `false`)
+   - `MINIO_PRESIGNED_EXPIRY`: Presigned URL expiry in seconds (default is `3600`)
 
    
 3. Install dependencies:
    ```bash
-   pip install openpyxl reportlab py7zr fastapi uvicorn python-multipart mcp
+   pip install openpyxl reportlab py7zr fastapi uvicorn python-multipart mcp boto3
    ```
 
 4. Run the file server:
@@ -345,8 +394,10 @@ MCPO-File-Generation-Tool/
 │       HowToUse.md
 │       Prompt_Examples.md
 │
+├───Examples
+│       docker-compose.yaml
+│
 └───LLM_Export
-    │   Example_docker-compose.yaml
     │   requirements.txt
     │
     ├───docker
@@ -356,6 +407,7 @@ MCPO-File-Generation-Tool/
     │   ├───file_server
     │   │       dockerfile.server
     │   │       file_export_server.py
+    │   │       minio_storage.py
     │   │
     │   ├───mcpo
     │   │   │   config.json
@@ -372,6 +424,7 @@ MCPO-File-Generation-Tool/
     │   │   │
     │   │   └───tools
     │   │           file_export_mcp.py
+    │   │           minio_storage.py
     │   │           __init__.py
     │   │
     │   └───sse_http
@@ -389,6 +442,7 @@ MCPO-File-Generation-Tool/
     │       │
     │       └───tools
     │               file_export_mcp.py
+    │               minio_storage.py
     │               __init__.py
     │	
     ├───functions
@@ -403,6 +457,7 @@ MCPO-File-Generation-Tool/
     └───tools
             file_export_mcp.py
             file_export_server.py
+            minio_storage.py
             __init__.py
 ```
 
@@ -508,6 +563,17 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
    - `MODE`: "sse" or "http"
 
+**MinIO / S3 Storage (optional):**
+   - `STORAGE_BACKEND`: Set to `minio` to enable MinIO/S3 storage (default is `local`)
+   - `MINIO_ENDPOINT`: MinIO server URL — the internal/Docker address (e.g., `http://minio:9000`)
+   - `MINIO_PUBLIC_ENDPOINT`: Public-facing MinIO URL for presigned download links (e.g., `http://localhost:9000` locally, or `https://s3.example.com` in production). If unset, presigned URLs use `MINIO_ENDPOINT`.
+   - `MINIO_ACCESS_KEY`: MinIO access key
+   - `MINIO_SECRET_KEY`: MinIO secret key
+   - `MINIO_BUCKET`: Bucket name (default is `file-exports`)
+   - `MINIO_REGION`: Region (default is `us-east-1`)
+   - `MINIO_SECURE`: Set to `true` to use HTTPS (default is `false`)
+   - `MINIO_PRESIGNED_EXPIRY`: Presigned URL expiry in seconds (default is `3600`)
+
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
 
@@ -544,6 +610,17 @@ docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+
+**MinIO / S3 Storage (optional):**
+   - `STORAGE_BACKEND`: Set to `minio` to enable MinIO/S3 storage (default is `local`)
+   - `MINIO_ENDPOINT`: MinIO server URL — the internal/Docker address (e.g., `http://minio:9000`)
+   - `MINIO_PUBLIC_ENDPOINT`: Public-facing MinIO URL for presigned download links (e.g., `http://localhost:9000` locally, or `https://s3.example.com` in production). If unset, presigned URLs use `MINIO_ENDPOINT`.
+   - `MINIO_ACCESS_KEY`: MinIO access key
+   - `MINIO_SECRET_KEY`: MinIO secret key
+   - `MINIO_BUCKET`: Bucket name (default is `file-exports`)
+   - `MINIO_REGION`: Region (default is `us-east-1`)
+   - `MINIO_SECURE`: Set to `true` to use HTTPS (default is `false`)
+   - `MINIO_PRESIGNED_EXPIRY`: Presigned URL expiry in seconds (default is `3600`)
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
