@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 import uvicorn
 import os
 import pathlib
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
@@ -19,11 +19,14 @@ async def serve_file(folder_name: str, filename: str):
     file_path = os.path.join(EXPORT_DIR, folder_name, decoded_filename)
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
+    # Use raw_headers to avoid latin-1 encoding issues with cyrillic characters
     return FileResponse(
         path=file_path,
         media_type='application/octet-stream',
-        filename=filename, 
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={
+            "Content-Disposition": f'attachment; filename*=UTF-8\'\'{quote(decoded_filename)}',
+            "filename*": decoded_filename  # Alternative: raw filename for browser fallback
+        }
     )
 
 app.mount("/files", StaticFiles(directory=EXPORT_DIR), name="files")

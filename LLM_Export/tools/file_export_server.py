@@ -23,8 +23,8 @@ async def serve_file(folder_name: str, filename: str):
     return FileResponse(
         path=file_path,
         media_type='application/octet-stream',
-        filename=filename, 
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        filename=decoded_filename,  # Use decoded name for header encoding
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{decoded_filename}"}  # RFC5987 encoding
     )
 
 app.mount("/files", StaticFiles(directory=EXPORT_DIR), name="files")
