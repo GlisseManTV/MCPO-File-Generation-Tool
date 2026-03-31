@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 import uvicorn
 import os
 import pathlib
+from urllib.parse import unquote
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
@@ -13,7 +14,9 @@ app = FastAPI()
 
 @app.get("/files/{folder_name}/{filename}")
 async def serve_file(folder_name: str, filename: str):
-    file_path = os.path.join(EXPORT_DIR, folder_name, filename)
+    # Decode the filename from URL-encoded format to match actual file on disk
+    decoded_filename = unquote(filename)
+    file_path = os.path.join(EXPORT_DIR, folder_name, decoded_filename)
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
