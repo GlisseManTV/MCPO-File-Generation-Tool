@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 import uvicorn
 import os
 import pathlib
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or r"C:\temp\output").rstrip("/")
@@ -23,8 +23,10 @@ async def serve_file(folder_name: str, filename: str):
     return FileResponse(
         path=file_path,
         media_type='application/octet-stream',
-        filename=decoded_filename,  # Use decoded name for header encoding
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{decoded_filename}"}  # RFC5987 encoding
+        headers={
+            # RFC5987 header is ASCII-only; quote() ensures safe encoding
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(decoded_filename)}"
+        }
     )
 
 app.mount("/files", StaticFiles(directory=EXPORT_DIR), name="files")

@@ -24,8 +24,8 @@ async def serve_file(folder_name: str, filename: str):
         path=file_path,
         media_type='application/octet-stream',
         headers={
-            "Content-Disposition": f'attachment; filename*=UTF-8\'\'{quote(decoded_filename)}',
-            "filename*": decoded_filename  # Alternative: raw filename for browser fallback
+            # RFC5987 header is ASCII-only; quote() ensures safe encoding
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(decoded_filename)}"
         }
     )
 
