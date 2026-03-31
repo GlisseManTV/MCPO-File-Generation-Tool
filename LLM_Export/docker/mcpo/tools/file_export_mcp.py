@@ -1,5 +1,6 @@
 import re
 import os
+from urllib.parse import quote
 import ast
 import csv
 import json
@@ -311,7 +312,9 @@ def _public_url(folder_path: str, filename: str) -> str:
     """Build a stable public URL for a generated file."""
     folder = os.path.basename(folder_path).lstrip("/")
     name = filename.lstrip("/")
-    return f"{BASE_URL}/{folder}/{name}"
+    # Encode special characters (Russian, accents, etc.) to percent-encoding
+    encoded_name = quote(name, safe='._-')  # Keep dots, underscores, and hyphens
+    return f"{BASE_URL}/{folder}/{encoded_name}"
 
 def _generate_unique_folder() -> str:
     folder_name = f"export_{uuid.uuid4().hex[:10]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
