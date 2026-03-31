@@ -48,7 +48,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.units import mm
 
-SCRIPT_VERSION = "0.8.0-rc1"
+SCRIPT_VERSION = "0.8.1"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
@@ -1416,7 +1416,7 @@ def _apply_run_formatting(run, format_dict):
 async def full_context_document(
     file_id: str,
     file_name: str,
-    mcpo_headers: dict = None,
+    headers: dict = None,
     ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
@@ -1426,8 +1426,8 @@ async def full_context_document(
         dict: A JSON object with the structure of the document.
     """
     user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
+    if headers:
+        auth_header = headers.get("authorization")
         if auth_header:
             user_token = auth_header
             logging.info("Using authorization from MCPO forwarded headers")
@@ -1958,7 +1958,7 @@ async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
-    mcpo_headers: dict = None,
+    headers: dict = None,
     ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
@@ -2018,8 +2018,8 @@ async def edit_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
     user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
+    if headers:
+        auth_header = headers.get("authorization")
         if auth_header:
             user_token = auth_header
             logging.info("✅ Using authorization from MCPO forwarded headers")
@@ -2578,7 +2578,7 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: list[tuple[int | str, str]],
-    mcpo_headers: dict = None,
+    headers: dict = None,
     ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
@@ -2602,8 +2602,8 @@ async def review_document(
     temp_folder = f"/app/temp/{uuid.uuid4()}"
     os.makedirs(temp_folder, exist_ok=True)
     user_token = TOKEN
-    if mcpo_headers:
-        auth_header = mcpo_headers.get("authorization")
+    if headers:
+        auth_header = headers.get("authorization")
         if auth_header:
             user_token = auth_header
             logging.info("✅ Using authorization from MCPO forwarded headers")

@@ -57,7 +57,15 @@
 
         ![alt text](img/image.png)
 
-2. User settings
+2. Go to Admin settings \ Functions
+    1. Create a new function
+        1. Copy the whole content of this [file](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/LLM_Export/functions/files_metadata_injector.py) and replace the default function content
+        2. Name the function "Get_files_metadata" (or another one but must match your model prompt)
+        3. Click Save
+    2. Enable the function
+        1. You can enable it globally because the token count is not very high, even if the tool is not used.
+
+3. User settings
     1. Account
         1. Generate new API key if not already done so
         
@@ -124,7 +132,16 @@
         
         **Auth must be "Session"**    
             ![alt text](img/image-3.png)![alt text](img/image-2.png)
-2. User settings
+
+2. Go to Admin settings \ Functions
+    1. Create a new function
+        1. Copy the whole content of this [file](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/LLM_Export/functions/files_metadata_injector.py) and replace the default function content
+        2. Name the function "Get_files_metadata" (or another one but must match your model prompt)
+        3. Click Save
+    2. Enable the function
+        1. You can enable it globally because the token count is not very high, even if the tool is not used.
+
+3. User settings
     1. Account
         1. Generate new API key if not already done so
 

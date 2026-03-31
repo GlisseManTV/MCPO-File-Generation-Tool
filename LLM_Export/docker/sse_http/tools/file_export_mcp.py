@@ -59,7 +59,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "0.8.1-rc4"
+SCRIPT_VERSION = "0.8.1"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
