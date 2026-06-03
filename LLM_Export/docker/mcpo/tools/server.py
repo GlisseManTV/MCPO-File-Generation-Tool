@@ -11,8 +11,7 @@ import tarfile
 import zipfile
 import logging
 from io import BytesIO
-from typing import Any, List, Optional, Tuple, Literal, Union
-from pydantic import BaseModel, Field
+from typing import Any, List, Optional, Tuple
 
 import py7zr
 from mcp.server.fastmcp import FastMCP, Context
@@ -24,6 +23,7 @@ from openpyxl import load_workbook
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt as PptPt
+
 
 
 from utils import (
@@ -158,59 +158,6 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     else:
         logging.debug("No XLSX template found. Creation of a blank document.")
         XLSX_TEMPLATE = None
-
-# -----------------------------------------------------------------------------
-# Pydantic Models for structured OpenAPI schema (Option 3+4)
-# -----------------------------------------------------------------------------
-
-class PDFContentItem(BaseModel):
-    type: Literal["title", "paragraph", "list", "image"]
-    text: str
-    items: Optional[List[str]] = None
-
-class DocxContentItem(BaseModel):
-    type: Literal["title", "paragraph", "list", "table", "image"]
-    text: Optional[str] = None
-    data: Optional[List[List[str]]] = None
-
-class PPTXSlide(BaseModel):
-    title: str
-    content: Optional[List[str]] = None
-    image_query: Optional[str] = None
-    image_position: Optional[Literal["left", "right", "top", "bottom"]] = None
-    image_size: Optional[Literal["small", "medium", "large"]] = None
-
-class CreateFileData(BaseModel):
-    """Data description for create_file tool."""
-    format: Literal["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md", "html", "yaml", "yml", "sql", "js", "ts", "tsx", "jsx", "css", "scss", "less", "sh", "bash", "zsh", "rb", "php", "java", "c", "cpp", "h", "hpp", "go", "rs", "swift", "kt", "scala", "r", "m", "mm", "lua", "pl", "pm", "t", "cgi", "pl6", "plm", "plx", "pmc", "pod", "psgi", "ps1", "ps1xml", "psd1", "psm1", "psd1", "ps1xml", "psd1", "ps1xml", "psd1", "ps1xml", "psd1", "ps1xml"] = Field(
-        description="File format: pdf, docx, pptx, xlsx, csv, txt, xml, py, json, and many more code formats"
-    )
-    filename: Optional[str] = Field(default=None, description="File name with extension (auto-generated if omitted)")
-    content: Optional[Union[List, str]] = Field(
-        default=None,
-        description="File content. For PDF/DOCX: list[dict]. For XLSX/CSV: list[list]. For TXT/XML: str. NOT used for PPTX (use slides_data)."
-    )
-    title: Optional[str] = Field(default=None, description="Document title for DOCX/PPTX/XLSX headers")
-    slides_data: Optional[List[PPTXSlide]] = Field(
-        default=None,
-        description="Required for PPTX format. List of slide definitions with title, content, and optional image settings."
-    )
-
-class EditDocumentEdits(BaseModel):
-    """Edit operations for edit_document tool."""
-    edits: Optional[List[List]] = Field(default=None, description="List of [target, value] pairs")
-    ops: Optional[List[List]] = Field(default=None, description="Structural operations like insert_after, insert_before, delete_paragraph")
-    content_edits: Optional[List[dict]] = Field(default=None, description="Alternative format: list of {target, value} dicts")
-
-class GenerateAndArchiveFileItem(BaseModel):
-    """Single file item for generate_and_archive tool."""
-    format: Literal["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md", "html", "yaml", "yml", "sql", "js", "ts", "tsx", "jsx", "css", "scss", "less", "sh", "bash", "zsh", "rb", "php", "java", "c", "cpp", "h", "hpp", "go", "rs", "swift", "kt", "scala", "r", "m", "mm", "lua", "pl", "pm", "t", "cgi", "pl6", "plm", "plx", "pmc", "pod", "psgi", "ps1", "ps1xml", "psd1", "psm1"] = Field(
-        description="File format (same options as create_file)"
-    )
-    filename: Optional[str] = Field(default=None, description="File name with extension")
-    content: Optional[Union[List, str]] = Field(default=None, description="File content")
-    title: Optional[str] = Field(default=None, description="Document title")
-    slides_data: Optional[List[PPTXSlide]] = Field(default=None, description="Required for PPTX format")
 
 # -----------------------------------------------------------------------------
 # MCP server
@@ -429,7 +376,7 @@ async def full_context_document(
 async def edit_document(
     file_id: str,
     file_name: str,
-    edits: Union[dict, list],
+    edits: dict | list,
     headers: dict | None = None,
     ctx: Context[ServerSession, None] | None = None
 ) -> dict:
@@ -1082,39 +1029,30 @@ async def review_document(
         )
 
 
-@mcp.tool(
-    name="create_file",
-    description="""Create a single file based on 'data' description.
-
-FORMATS:
-  pdf   → content: list[dict] with {type: "title"|"paragraph"|"list"}
-  docx  → content: list[dict] with {type: "title"|"paragraph"|"list"|"table"|"image"}
-  pptx  → slides_data: list[PPTXSlide] (NOT content)
-  xlsx  → content: list[list[str]] (table data)
-  csv   → content: list[list[str]] (table data)
-  txt   → content: str (plain text)
-  xml   → content: str (XML, <?xml> auto-added)
-
-EXAMPLE:
-  {"format": "pdf", "filename": "report.pdf", "content": [{"type": "title", "text": "My Title"}]}
-"""
-)
-async def create_file(data: CreateFileData, persistent: bool = PERSISTENT_FILES) -> dict:
+@mcp.tool()
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     """
     Create a single file based on 'data' description.
+    data examples:
+      {"format":"pdf","filename":"report.pdf","content":[...]}
+      {"format":"docx","filename":"doc.docx","content":[...],"title":"..."}
+      {"format":"pptx","filename":"slides.pptx","slides_data":[...],"title":"..."}
+      {"format":"xlsx","filename":"data.xlsx","content":[[...]],"title":"..."}
+      {"format":"csv","filename":"data.csv","content":[[...]]}
+      {"format":"txt|xml|py|...","filename":"file.ext","content":"string"}
     """
     log.debug("Creating file via tool (server.py)")
     folder_path = _generate_unique_folder()
-    format_type = (data.format or "").lower()
-    filename = data.filename
-    content = data.content
-    title = data.title
+    format_type = (data.get("format") or "").lower()
+    filename = data.get("filename")
+    content = data.get("content")
+    title = data.get("title")
 
     if format_type == "pdf":
         result = create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
     elif format_type == "pptx":
         result = create_presentation(
-            data.slides_data or [],
+            data.get("slides_data", []),
             filename,
             folder_path=folder_path,
             title=title,
@@ -1148,48 +1086,33 @@ async def create_file(data: CreateFileData, persistent: bool = PERSISTENT_FILES)
     return {"url": result["url"]}
 
 
-@mcp.tool(
-    name="generate_and_archive",
-    description="""Generate multiple files then archive them.
-
-FILES_DATA: list of file items with {format, filename, content, slides_data (for pptx)}
-ARCHIVE_FORMAT: zip | 7z | tar.gz
-ARCHIVE_NAME: optional name (auto-generated if None: archive_YYYYMMDD_HHMMSS)
-
-EXAMPLE:
-  {
-    "files_data": [
-      {"format": "pdf", "filename": "report.pdf", "content": [{"type": "title", "text": "Report"}]},
-      {"format": "pptx", "filename": "slides.pptx", "slides_data": [{"title": "Slide 1", "content": ["Line 1"]}]}
-    ],
-    "archive_format": "zip"
-  }
-"""
-)
+@mcp.tool()
 async def generate_and_archive(
-    files_data: List[GenerateAndArchiveFileItem],
-    archive_format: Literal["zip", "7z", "tar.gz"] = "zip",
+    files_data: list[dict],
+    archive_format: str = "zip",
     archive_name: str | None = None,
     persistent: bool = PERSISTENT_FILES
 ) -> dict:
     """
     Generate multiple files then archive them.
+    files_data: list of 'data' dicts (same shape as for create_file)
+    archive_format: zip | 7z | tar.gz
     """
     log.debug("Generating archive via tool (server.py)")
     folder_path = _generate_unique_folder()
     generated_paths: list[str] = []
 
     for file_info in files_data or []:
-        fmt = (file_info.format or "").lower()
-        fname = file_info.filename
-        content = file_info.content
-        title = file_info.title
+        fmt = (file_info.get("format") or "").lower()
+        fname = file_info.get("filename")
+        content = file_info.get("content")
+        title = file_info.get("title")
         try:
             if fmt == "pdf":
                 res = create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)
             elif fmt == "pptx":
                 res = create_presentation(
-                    file_info.slides_data or [],
+                    file_info.get("slides_data", []),
                     fname,
                     folder_path=folder_path,
                     title=title,

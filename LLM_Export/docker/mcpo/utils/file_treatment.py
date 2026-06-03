@@ -9,7 +9,6 @@ import requests
 from requests.auth import HTTPBasicAuth
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import quote
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
