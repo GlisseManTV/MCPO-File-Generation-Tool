@@ -42,6 +42,7 @@ from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.parts.image import Image
 from pptx.enum.text import MSO_AUTO_SIZE
 from io import BytesIO
+from urllib.parse import quote
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Image as ReportLabImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -323,10 +324,17 @@ def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
         return PptPt(max(min_size, new_size))
 
 def _public_url(folder_path: str, filename: str) -> str:
-    """Build a stable public URL for a generated file."""
+    """Build a stable public URL for a generated file with proper encoding.
+    
+    The filename is URL-encoded using utf-8 to support international characters.
+    This prevents UnicodeEncodeError when the server or browser expects ASCII/latin-1.
+    """
     folder = os.path.basename(folder_path).lstrip("/")
     name = filename.lstrip("/")
-    return f"{BASE_URL}/{folder}/{name}"
+    # Encode filename to handle unicode characters (e.g., cyrillic, chinese, accented chars)
+    # Using quote with safe='' ensures all special chars are encoded
+    encoded_name = quote(name, safe='')
+    return f"{BASE_URL}/{folder}/{encoded_name}"
 
 def _generate_unique_folder() -> str:
     folder_name = f"export_{uuid.uuid4().hex[:10]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"

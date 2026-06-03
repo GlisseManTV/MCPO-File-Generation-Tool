@@ -18,10 +18,17 @@ BASE_URL_ENV = os.getenv("FILE_EXPORT_BASE_URL")
 BASE_URL = (BASE_URL_ENV or "http://localhost:9003/files").rstrip("/")
 
 def _public_url(folder_path: str, filename: str) -> str:
-    """Build a stable public URL for a generated file."""
+    """Build a stable public URL for a generated file with proper encoding.
+    
+    The filename is URL-encoded using utf-8 to support international characters.
+    This prevents UnicodeEncodeError when the server or browser expects ASCII/latin-1.
+    """
     folder = os.path.basename(folder_path).lstrip("/")
     name = filename.lstrip("/")
-    return f"{BASE_URL}/{folder}/{name}"
+    # Encode filename to handle unicode characters (e.g., cyrillic, chinese, accented chars)
+    # Using quote with safe='' ensures all special chars are encoded
+    encoded_name = quote(name, safe='')
+    return f"{BASE_URL}/{folder}/{encoded_name}"
 
 def _generate_unique_folder() -> str:
     folder_name = f"export_{uuid.uuid4().hex[:10]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
