@@ -2,7 +2,7 @@ name: Build & Push GHCR images
 
 on:
   push:
-    branches: [ master, main, dev, alpha, beta, release-candidate ]
+    branches: [ master, main, dev, alpha, beta, release-candidate, folder-refac ]
     tags: [ 'v*' ]
   workflow_dispatch:
 
@@ -67,6 +67,7 @@ jobs:
             type=raw,value=beta-latest,enable=${{github.ref == 'refs/heads/beta'}}
             type=raw,value=dev-latest,enable=${{github.ref == 'refs/heads/dev'}}
             type=raw,value=rc-latest,enable=${{github.ref == 'refs/heads/release-candidate'}}
+            type=raw,value=fc-latest,enable=${{github.ref == 'refs/heads/folder-refac'}}
 
 
       - name: Build & Push (${{ matrix.name }})
