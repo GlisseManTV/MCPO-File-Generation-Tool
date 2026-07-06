@@ -251,7 +251,7 @@ def search_openai(query: str) -> str | None:
             prompt=query.strip(),
             size=size,
             n=1,
-            response_format="b64_json",
+            data="b64_json",
             quality=quality,
         )
         image_b64 = response.data[0].b64_json
