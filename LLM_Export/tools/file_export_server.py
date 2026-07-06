@@ -15,9 +15,9 @@ app = FastAPI()
 
 @app.get("/files/{folder_name}/{filename}")
 async def serve_file(folder_name: str, filename: str):
-    decoded_folder = unquote(folder_name)
+    # Decode the filename from URL-encoded format to match actual file on disk
     decoded_filename = unquote(filename)
-    file_path = os.path.join(EXPORT_DIR, decoded_folder, decoded_filename)
+    file_path = os.path.join(EXPORT_DIR, folder_name, decoded_filename)
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
     ascii_fallback = decoded_filename.encode("ascii", "ignore").decode("ascii") or "download"
@@ -29,8 +29,10 @@ async def serve_file(folder_name: str, filename: str):
     return FileResponse(
         path=file_path,
         media_type='application/octet-stream',
-        filename=decoded_filename, 
-        headers={"Content-Disposition": content_disposition}
+        headers={
+            # RFC5987 header is ASCII-only; quote() ensures safe encoding
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(decoded_filename)}"
+        }
     )
 
 app.mount("/files", StaticFiles(directory=EXPORT_DIR), name="files")

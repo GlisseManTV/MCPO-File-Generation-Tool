@@ -2,7 +2,7 @@
 
 ## Best practices here: [Best_Practices.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Best_Practices.md)
 
-## Model Prompt
+## Model Prompt or SKill
 
 I got good results with the following prompt:
 ```
@@ -31,7 +31,7 @@ I got good results with the following prompt:
        - `filename` (str, optional): file name with extension. If omitted, a generated name will be used.
        - `content` (any): file content, depending on format:
          - For `pdf`, `docx`, `pptx`: list of dictionaries or text strings.
-         - For `xlsx`, `csv`: list of lists (tables).
+         - For `xlsx`, `csv`: list of lists (tables, first cell is "B5").
          - For `txt`, `py`, `cs`, `xml`, `json`, `md`: text string.
          - For `xml`: if content does not start with `<?xml version="1.0" encoding="UTF-8"?>`, this declaration will be added automatically.
        - `title` (str, optional): used for presentations or structured documents.
