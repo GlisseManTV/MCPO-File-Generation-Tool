@@ -237,9 +237,9 @@ def search_openai(query: str) -> str | None:
         return None
 
     api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    model = os.getenv("OPENAI_DALLE_MODEL", "dall-e-3")
-    size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
-    quality = os.getenv("OPENAI_IMAGE_QUALITY", "medium")
+    model = os.getenv("OPENAI_DALLE_MODEL", "gpt-image-1.5")
+    size = os.getenv("OPENAI_IMAGE_SIZE", "auto")
+    quality = os.getenv("OPENAI_IMAGE_QUALITY", "auto")
     output_format = os.getenv("OPENAI_IMAGE_OUTPUT_FORMAT", "png")
 
     # Fallback to requests if openai SDK not installed
@@ -251,7 +251,6 @@ def search_openai(query: str) -> str | None:
             prompt=query.strip(),
             size=size,
             n=1,
-            data="b64_json",
             quality=quality,
         )
         image_b64 = response.data[0].b64_json
