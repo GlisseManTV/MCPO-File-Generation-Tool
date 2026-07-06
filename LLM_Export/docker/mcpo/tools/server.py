@@ -64,7 +64,7 @@ from utils import (
 )
 from utils.pptx_treatment import _resolve_donor_simple
 
-SCRIPT_VERSION = "1.0.0-alpha1"
+SCRIPT_VERSION = "1.0.0-beta2"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
