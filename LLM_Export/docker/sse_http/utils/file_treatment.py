@@ -30,7 +30,7 @@ def _public_url(folder_path: str, filename: str) -> str:
     name = filename.lstrip("/")
     # Encode filename to handle unicode characters (e.g., cyrillic, chinese, accented chars)
     # Using quote with safe='' ensures all special chars are encoded
-    encoded_name = quote(name, safe='')
+    encoded_name = quote(name, safe='._-')
     return f"{BASE_URL}/{folder}/{encoded_name}"
 
 def _generate_unique_folder() -> str:

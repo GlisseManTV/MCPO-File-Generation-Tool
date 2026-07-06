@@ -3,8 +3,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
 import os
-import pathlib
-from urllib.parse import unquote, quote
 from urllib.parse import unquote, quote
 
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
@@ -15,29 +13,25 @@ app = FastAPI()
 
 @app.get("/files/{folder_name}/{filename}")
 async def serve_file(folder_name: str, filename: str):
-    # Decode the filename from URL-encoded format to match actual file on disk
-    decoded_filename = unquote(filename)
-    file_path = os.path.join(EXPORT_DIR, folder_name, decoded_filename)
     # Decode percent-encoded characters from URL (Russian, accents, etc.)
     decoded_filename = unquote(filename)
     decoded_folder = unquote(folder_name)
     file_path = os.path.join(EXPORT_DIR, decoded_folder, decoded_filename)
+
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    # Use raw_headers to avoid latin-1 encoding issues with cyrillic characters
+
+    # RFC 6266: ASCII fallback + UTF-8 filename*
     ascii_fallback = decoded_filename.encode("ascii", "ignore").decode("ascii") or "download"
     encoded_filename = quote(decoded_filename)
     content_disposition = (
-        f"attachment; filename=\"{ascii_fallback}\"; "
+        f'attachment; filename="{ascii_fallback}"; '
         f"filename*=UTF-8''{encoded_filename}"
     )
+
     return FileResponse(
         path=file_path,
         media_type='application/octet-stream',
-        headers={
-            # RFC5987 header is ASCII-only; quote() ensures safe encoding
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(decoded_filename)}"
-        }
         filename=decoded_filename,
         headers={"Content-Disposition": content_disposition}
     )
