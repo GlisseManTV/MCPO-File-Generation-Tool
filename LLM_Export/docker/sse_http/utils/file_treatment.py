@@ -228,7 +228,7 @@ def search_local_sd(query: str) -> str | None:
 def search_openai(query: str) -> str | None:
     """
     Generate an image using OpenAI DALL-E API (dall-e-3).
-    Returns a direct URL from OpenAI response.
+    Returns a local public URL (served via BASE_URL) by saving the image locally.
     """
     log = logging.getLogger(__name__)
     api_key = os.getenv("OPENAI_API_KEY")
@@ -239,8 +239,8 @@ def search_openai(query: str) -> str | None:
     api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     model = os.getenv("OPENAI_DALLE_MODEL", "dall-e-3")
     size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
-    quality = os.getenv("OPENAI_IMAGE_QUALITY", "standard")
-    style = os.getenv("OPENAI_IMAGE_STYLE", "vivid")
+    quality = os.getenv("OPENAI_IMAGE_QUALITY", "medium")
+    output_format = os.getenv("OPENAI_IMAGE_OUTPUT_FORMAT", "png")
 
     # Fallback to requests if openai SDK not installed
     try:
@@ -251,11 +251,17 @@ def search_openai(query: str) -> str | None:
             prompt=query.strip(),
             size=size,
             n=1,
-            response_format="url",
+            response_format="b64_json",
             quality=quality,
-            style=style,
         )
-        return response.data[0].url
+        image_b64 = response.data[0].b64_json
+        image_data = base64.b64decode(image_b64)
+        folder_path = _generate_unique_folder()
+        filename = f"openai_{uuid.uuid4().hex[:8]}.{output_format}"
+        filepath = os.path.join(folder_path, filename)
+        with open(filepath, "wb") as f:
+            f.write(image_data)
+        return _public_url(folder_path, filename)
     except ImportError:
         log.debug("openai SDK not installed, falling back to raw HTTP")
 
@@ -270,19 +276,23 @@ def search_openai(query: str) -> str | None:
         "prompt": query.strip(),
         "size": size,
         "n": 1,
-        "response_format": "url",
+        "response_format": "b64_json",
+        "quality": quality,
     }
-    if quality:
-        payload["quality"] = quality
-    if style:
-        payload["style"] = style
 
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=60)
         resp.raise_for_status()
         data = resp.json()
         if data.get("data"):
-            return data["data"][0]["url"]
+            image_b64 = data["data"][0]["b64_json"]
+            image_data = base64.b64decode(image_b64)
+            folder_path = _generate_unique_folder()
+            filename = f"openai_{uuid.uuid4().hex[:8]}.{output_format}"
+            filepath = os.path.join(folder_path, filename)
+            with open(filepath, "wb") as f:
+                f.write(image_data)
+            return _public_url(folder_path, filename)
     except Exception as e:
         log.error(f"OpenAI DALL-E error: {e}")
     return None
