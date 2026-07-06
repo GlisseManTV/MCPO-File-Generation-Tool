@@ -6,8 +6,9 @@ The following versions of MCPO-File-Generation-Tool are currently receiving secu
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.8.x   | :white_check_mark: |
 | 0.9.x   | :white_check_mark: |
+| 1.x.x   | :white_check_mark: |
+| 0.8.x   | :x:                |
 | < 0.8   | :x:                |
 
 ## Reporting a Vulnerability

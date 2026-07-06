@@ -73,10 +73,6 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 ## Prompt examples [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
 ## How to use the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
 ## How configure the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
-## Best practices [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
-## Prompt examples [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
-## How to use the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
-## How configure the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
 
 ---
 
