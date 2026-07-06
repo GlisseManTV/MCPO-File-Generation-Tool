@@ -57,6 +57,8 @@ from utils import (
     _apply_text_to_paragraph,
     _apply_run_formatting,
     _extract_paragraph_style_info,
+    # security
+    safe_filename,
 )
 from utils.pptx_treatment import _resolve_donor_simple
 #NonDockerImport
@@ -1166,6 +1168,14 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     content = data.get("content")
     title = data.get("title")
 
+    # Validate filename to prevent path traversal
+    if filename:
+        try:
+            filename = safe_filename(filename)
+        except ValueError as e:
+            log.warning(f"Rejected malicious filename: {e}")
+            return {"error": {"message": f"Invalid filename: {e}"}}
+
     if format_type == "pdf":
         result = create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
     elif format_type == "pptx":
@@ -1225,6 +1235,14 @@ async def generate_and_archive(
         fname = file_info.get("filename")
         content = file_info.get("content")
         title = file_info.get("title")
+
+        # Validate filename to prevent path traversal
+        if fname:
+            try:
+                fname = safe_filename(fname)
+            except ValueError as e:
+                log.warning(f"Rejected malicious filename: {e}")
+                raise ValueError(f"Invalid filename: {e}")
         try:
             if fmt == "pdf":
                 res = create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)

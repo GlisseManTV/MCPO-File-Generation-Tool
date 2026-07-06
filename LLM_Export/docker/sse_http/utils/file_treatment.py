@@ -11,6 +11,8 @@ from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 
+from .security_utils import safe_filename
+
 EXPORT_DIR_ENV = os.getenv("FILE_EXPORT_DIR")
 EXPORT_DIR = (EXPORT_DIR_ENV or r"/output").rstrip("/")
 os.makedirs(EXPORT_DIR, exist_ok=True)
@@ -44,6 +46,7 @@ def _generate_filename(folder_path: str, ext: str, filename: str | None = None) 
     """
     if not filename:
         filename = f"export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
+    filename = safe_filename(filename)
     base, extension = os.path.splitext(filename)
     filepath = os.path.join(folder_path, filename)
     counter = 1
@@ -228,6 +231,7 @@ def _create_csv(data: list[list[str]] | list[str], filename: str | None = None, 
     if folder_path is None:
         folder_path = _generate_unique_folder()
     if filename:
+        filename = safe_filename(filename)
         filepath = os.path.join(folder_path, filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         fname = filename
@@ -249,6 +253,7 @@ def _create_raw_file(content: str, filename: str | None = None, folder_path: str
     if folder_path is None:
         folder_path = _generate_unique_folder()
     if filename:
+        filename = safe_filename(filename)
         filepath = os.path.join(folder_path, filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         fname = filename
