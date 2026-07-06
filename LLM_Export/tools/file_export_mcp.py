@@ -165,6 +165,7 @@ def search_local_sd(query: str):
     DEFAULT_CFG_SCALE = float(os.getenv("LOCAL_SD_CFG_SCALE", 1.5))
     DEFAULT_SCHEDULER = os.getenv("LOCAL_SD_SCHEDULER", "Karras")
     DEFAULT_SAMPLE = os.getenv("LOCAL_SD_SAMPLE", "Euler a")
+    LOCAL_SD_TIMEOUT = int(os.getenv("LOCAL_SD_TIMEOUT", 30))
 
     if not SD_URL:
         log.warning("LOCAL_SD_URL is not defined.")
@@ -194,7 +195,7 @@ def search_local_sd(query: str):
             json=payload,
             headers={"Content-Type": "application/json"},
             auth=HTTPBasicAuth(SD_USERNAME, SD_PASSWORD),
-            timeout=30
+            timeout=LOCAL_SD_TIMEOUT
         )
         response.raise_for_status()
         data = response.json()
@@ -985,7 +986,7 @@ def _create_presentation(slides_data: list[dict], filename: str, folder_path: st
                 log.debug(f"Searching for image query: '{image_query}'")
                 try:
                     log.debug(f"Downloading image from URL: {image_url}")
-                    response = requests.get(image_url, timeout=30)
+                    response = requests.get(image_url, timeout=LOCAL_SD_TIMEOUT)
                     response.raise_for_status()
                     image_data = response.content
                     image_stream = BytesIO(image_data)
