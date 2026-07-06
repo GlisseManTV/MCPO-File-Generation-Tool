@@ -112,7 +112,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
 def search_image(query: str):
     """
     Search or generate an image based on env var IMAGE_SOURCE.
-    Supports: unsplash, local_sd, pexels.
+    Supports: unsplash, local_sd, pexels, openai.
     Returns a public URL or a local public URL (served via BASE_URL).
     """
     image_source = os.getenv("IMAGE_SOURCE", "unsplash").strip().lower()
@@ -122,6 +122,8 @@ def search_image(query: str):
         return search_local_sd(query)
     elif image_source == "pexels":
         return search_pexels(query)
+    elif image_source == "openai":
+        return search_openai(query)
     logging.getLogger(__name__).warning(f"Unknown IMAGE_SOURCE '{image_source}'")
     return None
 
@@ -222,6 +224,69 @@ def search_local_sd(query: str) -> str | None:
     except Exception as e:
         log.error(f"Local SD generation error: {e}")
     return None
+
+def search_openai(query: str) -> str | None:
+    """
+    Generate an image using OpenAI DALL-E API (dall-e-3).
+    Returns a direct URL from OpenAI response.
+    """
+    log = logging.getLogger(__name__)
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        log.warning("OPENAI_API_KEY not set")
+        return None
+
+    api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+    model = os.getenv("OPENAI_DALLE_MODEL", "dall-e-3")
+    size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
+    quality = os.getenv("OPENAI_IMAGE_QUALITY", "standard")
+    style = os.getenv("OPENAI_IMAGE_STYLE", "vivid")
+
+    # Fallback to requests if openai SDK not installed
+    try:
+        import openai
+        client = openai.OpenAI(api_key=api_key, base_url=api_base)
+        response = client.images.generate(
+            model=model,
+            prompt=query.strip(),
+            size=size,
+            n=1,
+            response_format="url",
+            quality=quality,
+            style=style,
+        )
+        return response.data[0].url
+    except ImportError:
+        log.debug("openai SDK not installed, falling back to raw HTTP")
+
+    # Raw HTTP fallback
+    url = f"{api_base.rstrip('/')}/images/generations"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "prompt": query.strip(),
+        "size": size,
+        "n": 1,
+        "response_format": "url",
+    }
+    if quality:
+        payload["quality"] = quality
+    if style:
+        payload["style"] = style
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("data"):
+            return data["data"][0]["url"]
+    except Exception as e:
+        log.error(f"OpenAI DALL-E error: {e}")
+    return None
+
 
 def _create_csv(data: list[list[str]] | list[str], filename: str | None = None, folder_path: str | None = None) -> dict:
     """

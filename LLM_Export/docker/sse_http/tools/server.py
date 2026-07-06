@@ -1418,7 +1418,7 @@ async def handle_sse(request: Request) -> Response:
                                                         },
                                                         "image_query": {
                                                             "type": "string",
-                                                            "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                            "description": "Search query for image (Unsplash, Pexels, local SD, or OpenAI DALL-E)"
                                                         },
                                                         "image_position": {
                                                             "type": "string",
@@ -1503,7 +1503,7 @@ async def handle_sse(request: Request) -> Response:
                                                             },
                                                             "image_query": {
                                                                 "type": "string",
-                                                                "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                                "description": "Search query for image (Unsplash, Pexels, local SD, or OpenAI DALL-E)"
                                                             },
                                                             "image_position": {
                                                                 "type": "string",
