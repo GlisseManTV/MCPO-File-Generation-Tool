@@ -179,6 +179,7 @@ def search_local_sd(query: str) -> str | None:
     DEFAULT_CFG_SCALE = float(os.getenv("LOCAL_SD_CFG_SCALE", 1.5))
     DEFAULT_SCHEDULER = os.getenv("LOCAL_SD_SCHEDULER", "Karras")
     DEFAULT_SAMPLE = os.getenv("LOCAL_SD_SAMPLE", "Euler a")
+    DEFAULT_SD_TIMEOUT = int(os.getenv("LOCAL_SD_TIMEOUT", "60"))
 
     if not SD_URL:
         log.warning("LOCAL_SD_URL is not defined.")
@@ -203,7 +204,7 @@ def search_local_sd(query: str) -> str | None:
         response = requests.post(
             url, json=payload, headers={"Content-Type": "application/json"},
             auth=HTTPBasicAuth(SD_USERNAME, SD_PASSWORD) if SD_USERNAME or SD_PASSWORD else None,
-            timeout=60
+            timeout=DEFAULT_SD_TIMEOUT
         )
         response.raise_for_status()
         data = response.json()
