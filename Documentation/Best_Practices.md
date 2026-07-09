@@ -117,7 +117,7 @@ Clean, scalable, and ready for deployment. 🚀
 Just define your files, choose the right tool, and let the system do the rest.  
 Your project, your rules — all in one powerful workflow. 🚀
 
-## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Prompt_Examples.md)
+## Prompt examples here: [Prompt_Examples.md](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
 
 ---
 

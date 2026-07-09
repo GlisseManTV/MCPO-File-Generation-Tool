@@ -43,6 +43,7 @@ from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.parts.image import Image
 from pptx.enum.text import MSO_AUTO_SIZE
 from io import BytesIO
+from urllib.parse import quote
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Image as ReportLabImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -59,7 +60,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount 
 from starlette.responses import Response, JSONResponse 
 
-SCRIPT_VERSION = "0.8.2"
+SCRIPT_VERSION = "0.9.0-fc1"
 
 URL = os.getenv('OWUI_URL')
 TOKEN = os.getenv('JWT_SECRET') ## will be deleted in 1.0.0
@@ -164,6 +165,7 @@ def search_local_sd(query: str):
     DEFAULT_CFG_SCALE = float(os.getenv("LOCAL_SD_CFG_SCALE", 1.5))
     DEFAULT_SCHEDULER = os.getenv("LOCAL_SD_SCHEDULER", "Karras")
     DEFAULT_SAMPLE = os.getenv("LOCAL_SD_SAMPLE", "Euler a")
+    LOCAL_SD_TIMEOUT = int(os.getenv("LOCAL_SD_TIMEOUT", 30))
 
     if not SD_URL:
         log.warning("LOCAL_SD_URL is not defined.")
@@ -193,7 +195,7 @@ def search_local_sd(query: str):
             json=payload,
             headers={"Content-Type": "application/json"},
             auth=HTTPBasicAuth(SD_USERNAME, SD_PASSWORD),
-            timeout=30
+            timeout=LOCAL_SD_TIMEOUT
         )
         response.raise_for_status()
         data = response.json()
@@ -324,11 +326,16 @@ def dynamic_font_size(content_list, max_chars=400, base_size=28, min_size=12):
         return PptPt(max(min_size, new_size))
 
 def _public_url(folder_path: str, filename: str) -> str:
-    """Build a stable public URL for a generated file."""
+    """Build a stable public URL for a generated file with proper encoding.
+    
+    The filename is URL-encoded using utf-8 to support international characters.
+    This prevents UnicodeEncodeError when the server or browser expects ASCII/latin-1.
+    """
     folder = os.path.basename(folder_path).lstrip("/")
     name = filename.lstrip("/")
-    # Encode special characters (Russian, accents, etc.) to percent-encoding
-    encoded_name = quote(name, safe='._-')  # Keep dots, underscores, and hyphens
+    # Encode filename to handle unicode characters (e.g., cyrillic, chinese, accented chars)
+    # Using quote with safe='' ensures all special chars are encoded
+    encoded_name = quote(name, safe='')
     return f"{BASE_URL}/{folder}/{encoded_name}"
 
 def _generate_unique_folder() -> str:
@@ -979,7 +986,7 @@ def _create_presentation(slides_data: list[dict], filename: str, folder_path: st
                 log.debug(f"Searching for image query: '{image_query}'")
                 try:
                     log.debug(f"Downloading image from URL: {image_url}")
-                    response = requests.get(image_url, timeout=30)
+                    response = requests.get(image_url, timeout=LOCAL_SD_TIMEOUT)
                     response.raise_for_status()
                     image_data = response.content
                     image_stream = BytesIO(image_data)
