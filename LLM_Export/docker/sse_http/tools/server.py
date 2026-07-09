@@ -1363,8 +1363,7 @@ async def handle_sse(request: Request) -> Response:
                                         "properties": {
                                             "format": {
                                                 "type": "string",
-                                                "enum": ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md"],
-                                                "description": "Output file format"
+                                                "description": "Output file format. Common formats: pdf, docx, pptx, xlsx, csv, txt. ANY format is supported (e.g., html, js, yaml, sql, rb, sh, etc.) — the server creates the file with the given content regardless of format."
                                             },
                                             "filename": {
                                                 "type": "string",
