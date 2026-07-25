@@ -247,13 +247,17 @@ def search_openai(query: str) -> str | None:
     try:
         import openai
         client = openai.OpenAI(api_key=api_key, base_url=api_base)
-        response = client.images.generate(
-            model=model,
-            prompt=query.strip(),
-            size=size,
-            n=1,
-            quality=quality,
-        )
+        # Only add response_format for DALL-E models, not for gpt-image
+        gen_kwargs = {
+            "model": model,
+            "prompt": query.strip(),
+            "size": size,
+            "n": 1,
+            "quality": quality,
+        }
+        if "dall-e" in model.lower():
+            gen_kwargs["response_format"] = "b64_json"
+        response = client.images.generate(**gen_kwargs)
         image_b64 = response.data[0].b64_json
         image_data = base64.b64decode(image_b64)
         folder_path = _generate_unique_folder()
@@ -271,14 +275,16 @@ def search_openai(query: str) -> str | None:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    # Only add response_format for DALL-E models, not for gpt-image
     payload = {
         "model": model,
         "prompt": query.strip(),
         "size": size,
         "n": 1,
-        "response_format": "b64_json",
         "quality": quality,
     }
+    if "dall-e" in model.lower():
+        payload["response_format"] = "b64_json"
 
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=60)
