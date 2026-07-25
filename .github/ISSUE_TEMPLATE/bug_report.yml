@@ -26,6 +26,7 @@ body:
       label: Protocol
       description: What protocol are you using?
       options:
+        - All
         - SSE
         - Python
         - Built in MCPO
@@ -54,6 +55,8 @@ body:
       label: Image Provider
       description: Which image provider are you using?
       options:
+        - OpenAI
+        - OpenAI Compatible
         - Pexels
         - SDUI
         - Unsplash
@@ -67,11 +70,11 @@ body:
       label: Branch
       description: Which branch are you using?
       options:
-        - latest
-        - dev-latest
-        - alpha-latest
-        - beta-latest
-        - rc-latest
+        - master
+        - dev
+        - alpha
+        - beta
+        - release candidate
       default: 0
     validations:
       required: true
