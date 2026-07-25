@@ -243,7 +243,9 @@ def search_openai(query: str) -> str | None:
     quality = os.getenv("OPENAI_IMAGE_QUALITY", "auto")
     output_format = os.getenv("OPENAI_IMAGE_OUTPUT_FORMAT", "png")
 
-    # Fallback to requests if openai SDK not installed
+    image_b64 = None
+
+    # Try SDK first (handles import + API call)
     try:
         import openai
         client = openai.OpenAI(api_key=api_key, base_url=api_base)
@@ -259,6 +261,38 @@ def search_openai(query: str) -> str | None:
             gen_kwargs["response_format"] = "b64_json"
         response = client.images.generate(**gen_kwargs)
         image_b64 = response.data[0].b64_json
+    except Exception as e:
+        log.warning("OpenAI SDK failed, falling back to raw HTTP: %s", e)
+
+    # Raw HTTP fallback (used when SDK fails or is not installed)
+    if not image_b64:
+        try:
+            url = f"{api_base.rstrip('/')}/images/generations"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            # Only add response_format for DALL-E models, not for gpt-image
+            payload = {
+                "model": model,
+                "prompt": query.strip(),
+                "size": size,
+                "n": 1,
+                "quality": quality,
+            }
+            if "dall-e" in model.lower():
+                payload["response_format"] = "b64_json"
+
+            resp = requests.post(url, json=payload, headers=headers, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("data"):
+                image_b64 = data["data"][0]["b64_json"]
+        except Exception as e:
+            log.error("OpenAI DALL-E error (HTTP fallback): %s", e)
+
+    # Save and return the image
+    if image_b64:
         image_data = base64.b64decode(image_b64)
         folder_path = _generate_unique_folder()
         filename = f"openai_{uuid.uuid4().hex[:8]}.{output_format}"
@@ -266,41 +300,7 @@ def search_openai(query: str) -> str | None:
         with open(filepath, "wb") as f:
             f.write(image_data)
         return _public_url(folder_path, filename)
-    except ImportError:
-        log.debug("openai SDK not installed, falling back to raw HTTP")
 
-    # Raw HTTP fallback
-    url = f"{api_base.rstrip('/')}/images/generations"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    # Only add response_format for DALL-E models, not for gpt-image
-    payload = {
-        "model": model,
-        "prompt": query.strip(),
-        "size": size,
-        "n": 1,
-        "quality": quality,
-    }
-    if "dall-e" in model.lower():
-        payload["response_format"] = "b64_json"
-
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("data"):
-            image_b64 = data["data"][0]["b64_json"]
-            image_data = base64.b64decode(image_b64)
-            folder_path = _generate_unique_folder()
-            filename = f"openai_{uuid.uuid4().hex[:8]}.{output_format}"
-            filepath = os.path.join(folder_path, filename)
-            with open(filepath, "wb") as f:
-                f.write(image_data)
-            return _public_url(folder_path, filename)
-    except Exception as e:
-        log.error(f"OpenAI DALL-E error: {e}")
     return None
 
 
