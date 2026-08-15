@@ -1194,4 +1194,6 @@ async def generate_and_archive(
 
 if __name__ == "__main__":
     log.info(f"Starting MCPO File Export Server v{SCRIPT_VERSION}")
+    if os.getenv("LOCAL_SD_TIMEOUT") is not None:
+        log.warning("LOCAL_SD_TIMEOUT environment variable detected, will be removed in future release, please use IMAGE_TIMEOUT instead")
     mcp.run()
