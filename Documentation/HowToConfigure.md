@@ -25,18 +25,19 @@
             - FILES_DELAY=1
             - LOG_LEVEL=INFO
             - UNSPLASH_ACCESS_KEY=top-secret
-            - IMAGE_SOURCE=local_sd
-            - LOCAL_SD_URL=http://localhost:7860
-            - LOCAL_SD_USERNAME=local_user
-            - LOCAL_SD_PASSWORD=local_password
-            - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
-            - LOCAL_SD_STEPS=20
-            - LOCAL_SD_WIDTH=512
-            - LOCAL_SD_HEIGHT=512
-            - LOCAL_SD_CFG_SCALE=1.5
-            - LOCAL_SD_SCHEDULER=Karras
-            - LOCAL_SD_SAMPLE=Euler a
-            - OWUI_URL=http://localhost:8000
+             - IMAGE_SOURCE=local_sd
+             - IMAGE_TIMEOUT=60 # <== global timeout (seconds) for all image providers (Unsplash, Pexels, OpenAI, SD). Falls back to LOCAL_SD_TIMEOUT for SD, then 60.
+             - LOCAL_SD_URL=http://localhost:7860
+             - LOCAL_SD_USERNAME=local_user
+             - LOCAL_SD_PASSWORD=local_password
+             - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
+             - LOCAL_SD_STEPS=20
+             - LOCAL_SD_WIDTH=512
+             - LOCAL_SD_HEIGHT=512
+             - LOCAL_SD_CFG_SCALE=1.5
+             - LOCAL_SD_SCHEDULER=Karras
+             - LOCAL_SD_SAMPLE=Euler a
+             - OWUI_URL=http://localhost:8000
             ports:
             - "yourport:8000"
             restart: unless-stopped
@@ -105,19 +106,20 @@
             - FILES_DELAY=1
             - LOG_LEVEL=INFO
             - UNSPLASH_ACCESS_KEY=top-secret
-            - IMAGE_SOURCE=local_sd
-            - LOCAL_SD_URL=http://localhost:7860
-            - LOCAL_SD_USERNAME=local_user
-            - LOCAL_SD_PASSWORD=local_password
-            - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
-            - LOCAL_SD_STEPS=20
-            - LOCAL_SD_WIDTH=512
-            - LOCAL_SD_HEIGHT=512
-            - LOCAL_SD_CFG_SCALE=1.5
-            - LOCAL_SD_SCHEDULER=Karras
-            - LOCAL_SD_SAMPLE=Euler a
-            - OWUI_URL=http://localhost:8000
-            - OWUI_JWT_TOKEN=jwt-token-h # (only for edit/review used behind an external mcpo server / no longer used if you are using SSE/HTTP direct in OWUI)
+             - IMAGE_SOURCE=local_sd
+             - IMAGE_TIMEOUT=60 # <== global timeout (seconds) for all image providers (Unsplash, Pexels, OpenAI, SD). Falls back to LOCAL_SD_TIMEOUT for SD, then 60.
+             - LOCAL_SD_URL=http://localhost:7860
+             - LOCAL_SD_USERNAME=local_user
+             - LOCAL_SD_PASSWORD=local_password
+             - LOCAL_SD_DEFAULT_MODEL=sd_xl_base_1.0.safetensors
+             - LOCAL_SD_STEPS=20
+             - LOCAL_SD_WIDTH=512
+             - LOCAL_SD_HEIGHT=512
+             - LOCAL_SD_CFG_SCALE=1.5
+             - LOCAL_SD_SCHEDULER=Karras
+             - LOCAL_SD_SAMPLE=Euler a
+             - OWUI_URL=http://localhost:8000
+             - OWUI_JWT_TOKEN=jwt-token-h # (only for edit/review used behind an external mcpo server / no longer used if you are using SSE/HTTP direct in OWUI)
             ports:
             - "yourport:9004"
             restart: unless-stopped
