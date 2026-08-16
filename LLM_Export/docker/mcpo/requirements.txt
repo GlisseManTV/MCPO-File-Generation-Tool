@@ -12,3 +12,4 @@ python-pptx
 python-docx
 requests
 openai>=1.0.0
+google-genai

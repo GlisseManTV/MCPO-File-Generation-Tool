@@ -1349,7 +1349,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "create_file",
                             "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, xml, py, etc.). Supports rich content including titles, paragraphs, lists, tables, images via queries, and more.",
-                            "input_schema": {
+                            "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "data": {
@@ -1441,7 +1441,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "generate_and_archive",
                             "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
-                            "input_schema": {
+                            "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "files_data": {
@@ -1526,7 +1526,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "full_context_document",
                             "description": "Extract and return the complete structure, content, and metadata of a document (docx, xlsx, pptx). Returns a JSON structure with indexed elements (paragraphs, headings, tables, cells, slides, images) that can be referenced for editing or review.",
-                            "input_schema": {
+                            "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "file_id": {
@@ -1544,7 +1544,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "edit_document",
                             "description": "Edit an existing document (docx, xlsx, pptx) using structured operations. Supports inserting/deleting elements and updating content. ALWAYS call full_context_document() first to get proper IDs and references. Preserves formatting and returns a download link for the edited file.",
-                            "input_schema": {
+                            "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "file_id": {
@@ -1619,7 +1619,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "review_document",
                             "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word: use either an integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: use either an integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>' to target a shape).",
-                            "input_schema": {
+                            "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "file_id": {
