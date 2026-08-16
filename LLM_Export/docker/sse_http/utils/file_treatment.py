@@ -20,6 +20,10 @@ os.makedirs(EXPORT_DIR, exist_ok=True)
 BASE_URL_ENV = os.getenv("FILE_EXPORT_BASE_URL")
 BASE_URL = (BASE_URL_ENV or "http://localhost:9003/files").rstrip("/")
 
+def _image_timeout() -> int:
+    """Return the global image timeout (seconds). Falls back to LOCAL_SD_TIMEOUT for SD, then 60."""
+    return int(os.getenv("IMAGE_TIMEOUT", os.getenv("LOCAL_SD_TIMEOUT", "60")))
+
 def _public_url(folder_path: str, filename: str) -> str:
     """Build a stable public URL for a generated file with proper encoding.
     
@@ -136,7 +140,7 @@ def search_unsplash(query: str) -> str | None:
     params = {"query": query, "per_page": 1, "orientation": "landscape"}
     headers = {"Authorization": f"Client-ID {api_key}"}
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp = requests.get(url, params=params, headers=headers, timeout=_image_timeout())
         resp.raise_for_status()
         data = resp.json()
         if data.get("results"):
@@ -154,7 +158,7 @@ def search_pexels(query: str) -> str | None:
     params = {"query": query, "per_page": 1, "orientation": "landscape"}
     headers = {"Authorization": api_key}
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp = requests.get(url, params=params, headers=headers, timeout=_image_timeout())
         resp.raise_for_status()
         data = resp.json()
         if data.get("photos"):
@@ -179,7 +183,8 @@ def search_local_sd(query: str) -> str | None:
     DEFAULT_CFG_SCALE = float(os.getenv("LOCAL_SD_CFG_SCALE", 1.5))
     DEFAULT_SCHEDULER = os.getenv("LOCAL_SD_SCHEDULER", "Karras")
     DEFAULT_SAMPLE = os.getenv("LOCAL_SD_SAMPLE", "Euler a")
-    DEFAULT_SD_TIMEOUT = int(os.getenv("LOCAL_SD_TIMEOUT", "60"))
+    # LOCAL_SD_TIMEOUT takes precedence over IMAGE_TIMEOUT for SD-specific control
+    DEFAULT_SD_TIMEOUT = int(os.getenv("LOCAL_SD_TIMEOUT", str(_image_timeout())))
 
     if not SD_URL:
         log.warning("LOCAL_SD_URL is not defined.")
@@ -248,7 +253,7 @@ def search_openai(query: str) -> str | None:
     # Try SDK first (handles import + API call)
     try:
         import openai
-        client = openai.OpenAI(api_key=api_key, base_url=api_base)
+        client = openai.OpenAI(api_key=api_key, base_url=api_base, timeout=_image_timeout())
         # Only add response_format for DALL-E models, not for gpt-image
         gen_kwargs = {
             "model": model,
@@ -283,7 +288,7 @@ def search_openai(query: str) -> str | None:
             if "dall-e" in model.lower():
                 payload["response_format"] = "b64_json"
 
-            resp = requests.post(url, json=payload, headers=headers, timeout=60)
+            resp = requests.post(url, json=payload, headers=headers, timeout=_image_timeout())
             resp.raise_for_status()
             data = resp.json()
             if data.get("data"):

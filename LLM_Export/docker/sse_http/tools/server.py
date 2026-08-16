@@ -72,7 +72,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "1.0.2"
+SCRIPT_VERSION = "1.0.3"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -1874,6 +1874,9 @@ if __name__ == "__main__":
 
     mode = (os.getenv("MODE", "SSE"))
  
+    if os.getenv("LOCAL_SD_TIMEOUT") is not None:
+        log.warning("LOCAL_SD_TIMEOUT environment variable detected, will be removed in future release, please use IMAGE_TIMEOUT instead")
+
     if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")
