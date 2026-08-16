@@ -15,8 +15,7 @@ from io import BytesIO
 from typing import Any, List, Optional, Tuple, Union
 from typing_extensions import TypedDict
 import py7zr
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.session import ServerSession
+from mcp.server.mcpserver import MCPServer, Context
 
 from docx import Document
 from docx.shared import Inches
@@ -72,7 +71,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "1.0.3"
+SCRIPT_VERSION = "1.0.4-dev"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -177,11 +176,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
 # MCP server
 # -----------------------------------------------------------------------------
 
-mcp = FastMCP(
-    name = "file_export",
-    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
-    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
-)
+mcp = MCPServer(name="file_export")
 
 @mcp.tool(
     name="full_context_document",
@@ -192,7 +187,7 @@ mcp = FastMCP(
 async def full_context_document(
     file_id: str,
     file_name: str,
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -400,7 +395,7 @@ async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -878,7 +873,7 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: List[ReviewComment],
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -1354,7 +1349,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "create_file",
                             "description": "Create files in various formats (pdf, docx, pptx, xlsx, csv, txt, xml, py, etc.). Supports rich content including titles, paragraphs, lists, tables, images via queries, and more.",
-                            "inputSchema": {
+                            "input_schema": {
                                 "type": "object",
                                 "properties": {
                                     "data": {
@@ -1446,7 +1441,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "generate_and_archive",
                             "description": "Generate multiple files and create an archive (zip, 7z, tar.gz)",
-                            "inputSchema": {
+                            "input_schema": {
                                 "type": "object",
                                 "properties": {
                                     "files_data": {
@@ -1531,7 +1526,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "full_context_document",
                             "description": "Extract and return the complete structure, content, and metadata of a document (docx, xlsx, pptx). Returns a JSON structure with indexed elements (paragraphs, headings, tables, cells, slides, images) that can be referenced for editing or review.",
-                            "inputSchema": {
+                            "input_schema": {
                                 "type": "object",
                                 "properties": {
                                     "file_id": {
@@ -1549,7 +1544,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "edit_document",
                             "description": "Edit an existing document (docx, xlsx, pptx) using structured operations. Supports inserting/deleting elements and updating content. ALWAYS call full_context_document() first to get proper IDs and references. Preserves formatting and returns a download link for the edited file.",
-                            "inputSchema": {
+                            "input_schema": {
                                 "type": "object",
                                 "properties": {
                                     "file_id": {
@@ -1624,7 +1619,7 @@ async def handle_sse(request: Request) -> Response:
                         {
                             "name": "review_document",
                             "description": "Review and add comments/corrections to an existing document (docx, xlsx, pptx). Returns a download link for the reviewed document with comments added. For Excel, the index MUST be a cell reference (e.g., 'A1', 'B5', 'C10') as returned by full_context_document. For Word: use either an integer paragraph index or 'pid:<para_xml_id>'. For PowerPoint: use either an integer slide index or 'sid:<slide_id>' (optionally 'sid:<slide_id>/shid:<shape_id>' to target a shape).",
-                            "inputSchema": {
+                            "input_schema": {
                                 "type": "object",
                                 "properties": {
                                     "file_id": {
@@ -1903,5 +1898,7 @@ if __name__ == "__main__":
         log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
 
         mcp.run(
-            transport="streamable-http"
+            transport="streamable-http",
+            host=host,
+            port=port,
         )
