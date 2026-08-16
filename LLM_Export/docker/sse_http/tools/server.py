@@ -1,5 +1,6 @@
 import sys
 import os
+from urllib.parse import quote
 import re
 import json
 # Ajout du répertoire parent au chemin pour permettre les imports relatifs
@@ -57,6 +58,8 @@ from utils import (
     _apply_text_to_paragraph,
     _apply_run_formatting,
     _extract_paragraph_style_info,
+    # security
+    safe_filename,
 )
 from utils.pptx_treatment import _resolve_donor_simple
 #NonDockerImport
@@ -69,7 +72,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "1.0.0-dev1"
+SCRIPT_VERSION = "1.0.3"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -1166,6 +1169,14 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     content = data.get("content")
     title = data.get("title")
 
+    # Validate filename to prevent path traversal
+    if filename:
+        try:
+            filename = safe_filename(filename)
+        except ValueError as e:
+            log.warning(f"Rejected malicious filename: {e}")
+            return {"error": {"message": f"Invalid filename: {e}"}}
+
     if format_type == "pdf":
         result = create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
     elif format_type == "pptx":
@@ -1225,6 +1236,14 @@ async def generate_and_archive(
         fname = file_info.get("filename")
         content = file_info.get("content")
         title = file_info.get("title")
+
+        # Validate filename to prevent path traversal
+        if fname:
+            try:
+                fname = safe_filename(fname)
+            except ValueError as e:
+                log.warning(f"Rejected malicious filename: {e}")
+                raise ValueError(f"Invalid filename: {e}")
         try:
             if fmt == "pdf":
                 res = create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)
@@ -1344,8 +1363,7 @@ async def handle_sse(request: Request) -> Response:
                                         "properties": {
                                             "format": {
                                                 "type": "string",
-                                                "enum": ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "xml", "py", "json", "md"],
-                                                "description": "Output file format"
+                                                "description": "Output file format. Common formats: pdf, docx, pptx, xlsx, csv, txt. ANY format is supported (e.g., html, js, yaml, sql, rb, sh, etc.) — the server creates the file with the given content regardless of format."
                                             },
                                             "filename": {
                                                 "type": "string",
@@ -1399,7 +1417,7 @@ async def handle_sse(request: Request) -> Response:
                                                         },
                                                         "image_query": {
                                                             "type": "string",
-                                                            "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                            "description": "Search query for image (Unsplash, Pexels, local SD, or OpenAI DALL-E)"
                                                         },
                                                         "image_position": {
                                                             "type": "string",
@@ -1484,7 +1502,7 @@ async def handle_sse(request: Request) -> Response:
                                                             },
                                                             "image_query": {
                                                                 "type": "string",
-                                                                "description": "Search query for image (Unsplash, Pexels, or local SD)"
+                                                                "description": "Search query for image (Unsplash, Pexels, local SD, or OpenAI DALL-E)"
                                                             },
                                                             "image_position": {
                                                                 "type": "string",
@@ -1856,6 +1874,9 @@ if __name__ == "__main__":
 
     mode = (os.getenv("MODE", "SSE"))
  
+    if os.getenv("LOCAL_SD_TIMEOUT") is not None:
+        log.warning("LOCAL_SD_TIMEOUT environment variable detected, will be removed in future release, please use IMAGE_TIMEOUT instead")
+
     if mode == "sse":
         port = int(os.getenv("MCP_HTTP_PORT", "9004"))
         host = os.getenv("MCP_HTTP_HOST", "0.0.0.0")

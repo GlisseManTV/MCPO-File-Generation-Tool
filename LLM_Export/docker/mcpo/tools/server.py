@@ -59,10 +59,12 @@ from utils import (
     _apply_text_to_paragraph,
     _apply_run_formatting,
     _extract_paragraph_style_info,
+    # security
+    safe_filename,
 )
 from utils.pptx_treatment import _resolve_donor_simple
 
-SCRIPT_VERSION = "1.0.0-dev1"
+SCRIPT_VERSION = "1.0.3"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -1048,6 +1050,14 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     content = data.get("content")
     title = data.get("title")
 
+    # Validate filename to prevent path traversal
+    if filename:
+        try:
+            filename = safe_filename(filename)
+        except ValueError as e:
+            log.warning(f"Rejected malicious filename: {e}")
+            return {"error": {"message": f"Invalid filename: {e}"}}
+
     if format_type == "pdf":
         result = create_pdf(content if isinstance(content, list) else [str(content or "")], filename, folder_path=folder_path)
     elif format_type == "pptx":
@@ -1107,6 +1117,14 @@ async def generate_and_archive(
         fname = file_info.get("filename")
         content = file_info.get("content")
         title = file_info.get("title")
+
+        # Validate filename to prevent path traversal
+        if fname:
+            try:
+                fname = safe_filename(fname)
+            except ValueError as e:
+                log.warning(f"Rejected malicious filename: {e}")
+                raise ValueError(f"Invalid filename: {e}")
         try:
             if fmt == "pdf":
                 res = create_pdf(content if isinstance(content, list) else [str(content or "")], fname, folder_path=folder_path)
@@ -1176,4 +1194,6 @@ async def generate_and_archive(
 
 if __name__ == "__main__":
     log.info(f"Starting MCPO File Export Server v{SCRIPT_VERSION}")
+    if os.getenv("LOCAL_SD_TIMEOUT") is not None:
+        log.warning("LOCAL_SD_TIMEOUT environment variable detected, will be removed in future release, please use IMAGE_TIMEOUT instead")
     mcp.run()

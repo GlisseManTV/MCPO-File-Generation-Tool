@@ -47,6 +47,7 @@ from .file_treatment import (
     _generate_filename,
     _cleanup_files,
 )
+from .security_utils import safe_filename, sanitize_path
 
 __all__ = [
     # Main creation APIs
@@ -68,6 +69,10 @@ __all__ = [
     "_generate_unique_folder",
     "_generate_filename",
     "_cleanup_files",
+
+    # Security
+    "safe_filename",
+    "sanitize_path",
 
     # PPTX helpers
     "_add_table_from_matrix",

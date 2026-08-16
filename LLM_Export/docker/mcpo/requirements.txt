@@ -1,6 +1,6 @@
 openpyxl
 reportlab
-mcp
+mcp==1.29.0
 py7zr
 fastapi
 uvicorn
@@ -11,3 +11,4 @@ emoji
 python-pptx
 python-docx
 requests
+openai>=1.0.0

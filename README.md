@@ -73,10 +73,6 @@ https://github.com/user-attachments/assets/1e70a977-62f1-498c-895c-7db135ded95b
 ## Prompt examples [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
 ## How to use the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
 ## How configure the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
-## Best practices [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Best_Practices.md)
-## Prompt examples [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/Prompt_Examples.md)
-## How to use the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToUse.md)
-## How configure the tool [here](https://github.com/GlisseManTV/MCPO-File-Generation-Tool/blob/master/Documentation/HowToConfigure.md)
 
 ---
 
@@ -116,22 +112,27 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:latest
    - `FILES_DELAY`: Delay in minut to wait before checking for new files (default is 60)
    - `UNSPLASH_ACCESS_KEY`: Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
    - `PEXELS_ACCESS_KEY` : Your Pexels API key (no default value, not mandatory) see [here](https://www.pexels.com/api/)
-   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
-   - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
-   - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
-   - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
-   - `LOCAL_SD_DEFAULT_MODEL`: Default model to use (if any) (default `sd_xl_base_1.0.safetensors`, not mandatory)
-   - `LOCAL_SD_STEPS`: Number of steps to use (default 20, not mandatory)
-   - `LOCAL_SD_WIDTH`: Width of the image to generate (default 512, not mandatory)
-   - `LOCAL_SD_HEIGHT`: Height of the image to generate (default 512, not mandatory)
-   - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
-   - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
-   - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
-   - `JWT_TOKEN`: Token to access your OWUI instance (only for edit/review used behind an external mcpo server / no longer used if you are SSE/HTTP direct in OWUI)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
-   - `JWT_TOKEN`: Token to access your OWUI instance (only for edit/review used behind an external mcpo server / no longer used if you are SSE/HTTP direct in OWUI)
-   - `MODE`: "sse" or "http"
+    - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash, "openai" to use OpenAI DALL-E or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+    - `OPENAI_API_KEY`: Your OpenAI API key (no default value, mandatory if IMAGE_SOURCE=openai)
+    - `OPENAI_API_BASE`: Base URL for OpenAI API (default is `https://api.openai.com/v1`)
+    - `OPENAI_DALLE_MODEL`: DALL-E model to use (default is `gpt-image-1.5`)
+    - `OPENAI_IMAGE_SIZE`: Image size to generate (default is `auto`)
+    - `OPENAI_IMAGE_QUALITY`: Image quality setting (default is `auto`)
+    - `OPENAI_IMAGE_OUTPUT_FORMAT`: Output image format (default is `png`)
+    - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
+    - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
+    - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
+    - `LOCAL_SD_DEFAULT_MODEL`: Default model to use (if any) (default `sd_xl_base_1.0.safetensors`, not mandatory)
+    - `LOCAL_SD_STEPS`: Number of steps to use (default 20, not mandatory)
+    - `LOCAL_SD_WIDTH`: Width of the image to generate (default 512, not mandatory)
+    - `LOCAL_SD_HEIGHT`: Height of the image to generate (default 512, not mandatory)
+    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
+    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
+    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+    - `LOCAL_SD_TIMEOUT`: Timeout in seconds for requests to the local Stable Diffusion instance (default `30`, not mandatory)
+    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+    - `JWT_TOKEN`: Token to access your OWUI instance (only for edit/review used behind an external mcpo server / no longer used if you are SSE/HTTP direct in OWUI)
+    - `MODE`: "sse" or "http"
 
 For OWUI-FILE-EXPORT-SERVER
    - `FILE_EXPORT_DIR`: Directory where files will be saved (must match the MCPO's export directory) (default is `/output`) path must be mounted as a volume
@@ -159,7 +160,13 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
    - `FILES_DELAY`: Delay in minut to wait before checking for new files (default is 60)
    - `UNSPLASH_ACCESS_KEY`: Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
    - `PEXELS_ACCESS_KEY` : Your Pexels API key (no default value, not mandatory) see [here](https://www.pexels.com/api/)
-   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash, "openai" to use OpenAI DALL-E or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `OPENAI_API_KEY`: Your OpenAI API key (no default value, mandatory if IMAGE_SOURCE=openai)
+   - `OPENAI_API_BASE`: Base URL for OpenAI API (default is `https://api.openai.com/v1`)
+   - `OPENAI_DALLE_MODEL`: DALL-E model to use (default is `gpt-image-1.5`)
+   - `OPENAI_IMAGE_SIZE`: Image size to generate (default is `auto`)
+   - `OPENAI_IMAGE_QUALITY`: Image quality setting (default is `auto`)
+   - `OPENAI_IMAGE_OUTPUT_FORMAT`: Output image format (default is `png`)
    - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
    - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
    - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
@@ -170,7 +177,7 @@ docker pull ghcr.io/glissemantv/owui-mcpo:latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+   - `LOCAL_SD_TIMEOUT`: Timeout in seconds for requests to the local Stable Diffusion instance (default `30`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
 
 For OWUI-FILE-EXPORT-SERVER
@@ -225,6 +232,7 @@ services:
       - LOCAL_SD_CFG_SCALE=1.5
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
+      - LOCAL_SD_TIMEOUT=30
       - OWUI_URL=http://localhost:8000
     ports:
       - "8000:8000" # Use this port instead of the other only if you want to use the MCPO server
@@ -296,6 +304,7 @@ services:
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
+   - `LOCAL_SD_TIMEOUT`: Timeout in seconds for requests to the local Stable Diffusion instance (default `30`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
    - `JWT_TOKEN`: JWT token to use for authentication (no default value, mandatory to use edit/review behind an external mcpo tool)  
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
@@ -352,6 +361,7 @@ This is an example of a minimal `config.json` for MCPO to enable file export but
                 "LOCAL_SD_CFG_SCALE": "1.5", <==== HERE set to the CFG scale to use (if any)>
                 "LOCAL_SD_SCHEDULER": "Karras", <==== HERE set to the scheduler to use (if any)>
                 "LOCAL_SD_SAMPLE": "Euler a", <==== HERE set to the sampler to use (if any)>
+                "LOCAL_SD_TIMEOUT": "30", <==== HERE set the timeout in seconds for requests to the local Stable Diffusion instance (default 30)>
                 "OWUI_URL": "http://localhost:3000", <== HERE set to the OWUI URL>
                 "JWT_TOKEN": "topsecret" <== HERE set to the JWT token to use to connect to your OWUI instance (only for edit/review used behind an external mcpo server)>
 			},
@@ -546,7 +556,13 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `FILES_DELAY`: Delay in minut to wait before checking for new files (default is 60)
    - `UNSPLASH_ACCESS_KEY`: Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
    - `PEXELS_ACCESS_KEY` : Your Pexels API key (no default value, not mandatory) see [here](https://www.pexels.com/api/)
-   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash, "openai" to use OpenAI DALL-E or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `OPENAI_API_KEY`: Your OpenAI API key (no default value, mandatory if IMAGE_SOURCE=openai)
+   - `OPENAI_API_BASE`: Base URL for OpenAI API (default is `https://api.openai.com/v1`)
+   - `OPENAI_DALLE_MODEL`: DALL-E model to use (default is `gpt-image-1.5`)
+   - `OPENAI_IMAGE_SIZE`: Image size to generate (default is `auto`)
+   - `OPENAI_IMAGE_QUALITY`: Image quality setting (default is `auto`)
+   - `OPENAI_IMAGE_OUTPUT_FORMAT`: Output image format (default is `png`)
    - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
    - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
    - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
@@ -557,7 +573,7 @@ docker pull ghcr.io/glissemantv/file-gen-sse-http:dev-latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+   - `LOCAL_SD_TIMEOUT`: Timeout in seconds for requests to the local Stable Diffusion instance (default `30`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
    - `MODE`: "sse" or "http"
 
@@ -585,7 +601,13 @@ docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
    - `FILES_DELAY`: Delay in minut to wait before checking for new files (default is 60)
    - `UNSPLASH_ACCESS_KEY`: Your Unsplash API key (no default value, not mandatory but advised) see [here](https://unsplash.com/documentation#creating-a-developer-account)
    - `PEXELS_ACCESS_KEY` : Your Pexels API key (no default value, not mandatory) see [here](https://www.pexels.com/api/)
-   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `IMAGE_SOURCE`: "pexels" to use pexels, "unsplash" to use Unsplash, "openai" to use OpenAI DALL-E or "local_sd" to use your local Stable Diffusion instance (default is "unsplash")
+   - `OPENAI_API_KEY`: Your OpenAI API key (no default value, mandatory if IMAGE_SOURCE=openai)
+   - `OPENAI_API_BASE`: Base URL for OpenAI API (default is `https://api.openai.com/v1`)
+   - `OPENAI_DALLE_MODEL`: DALL-E model to use (default is `gpt-image-1.5`)
+   - `OPENAI_IMAGE_SIZE`: Image size to generate (default is `auto`)
+   - `OPENAI_IMAGE_QUALITY`: Image quality setting (default is `auto`)
+   - `OPENAI_IMAGE_OUTPUT_FORMAT`: Output image format (default is `png`)
    - `LOCAL_SD_URL`: URL of your local Stable Diffusion instance (if using local_sd) (no default value, mandatory if local_sd is used above)
    - `LOCAL_SD_USERNAME`: Username of your local Stable Diffusion instance (if any) (no default value, not mandatory)
    - `LOCAL_SD_PASSWORD`: Password of your local Stable Diffusion instance (if any) (no default value, not mandatory)
@@ -596,7 +618,7 @@ docker pull ghcr.io/glissemantv/owui-mcpo:dev-latest
    - `LOCAL_SD_CFG_SCALE`: CFG scale to use (default 1.5, not mandatory)
    - `LOCAL_SD_SCHEDULER`: Scheduler to use (default `Karras`, not mandatory)
    - `LOCAL_SD_SAMPLE`: Sampler to use (default `Euler a`, not mandatory)
-   - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
+   - `LOCAL_SD_TIMEOUT`: Timeout in seconds for requests to the local Stable Diffusion instance (default `30`, not mandatory)
    - `OWUI_URL`: URL of your OWUI instance (no default value, mandatory to use edit/review)
 
 For OWUI-FILE-EXPORT-SERVER
@@ -652,6 +674,7 @@ services:
       - LOCAL_SD_CFG_SCALE=1.5
       - LOCAL_SD_SCHEDULER=Karras
       - LOCAL_SD_SAMPLE=Euler a
+      - LOCAL_SD_TIMEOUT=30
       - OWUI_URL=http://localhost:3000
       - OWUI_URL=http://localhost:3000
     ports:
