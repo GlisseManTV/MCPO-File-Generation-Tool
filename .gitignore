@@ -378,3 +378,4 @@ External_mcpo_server
 Documentation/MCP_API_Exposed_Tools.md
 Documentation/MCP_Tools_Reference.md
 .clinerules/Architecture.md
+test/*
