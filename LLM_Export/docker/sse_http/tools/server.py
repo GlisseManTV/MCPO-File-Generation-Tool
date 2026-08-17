@@ -15,8 +15,7 @@ from io import BytesIO
 from typing import Any, List, Optional, Tuple, Union
 from typing_extensions import TypedDict
 import py7zr
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.session import ServerSession
+from mcp.server.mcpserver import MCPServer, Context
 
 from docx import Document
 from docx.shared import Inches
@@ -72,7 +71,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "1.0.3"
+SCRIPT_VERSION = "1.0.4-dev4"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -177,11 +176,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
 # MCP server
 # -----------------------------------------------------------------------------
 
-mcp = FastMCP(
-    name = "file_export",
-    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
-    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
-)
+mcp = MCPServer(name="file_export")
 
 @mcp.tool(
     name="full_context_document",
@@ -192,7 +187,7 @@ mcp = FastMCP(
 async def full_context_document(
     file_id: str,
     file_name: str,
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -400,7 +395,7 @@ async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -878,7 +873,7 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: List[ReviewComment],
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -1903,5 +1898,7 @@ if __name__ == "__main__":
         log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
 
         mcp.run(
-            transport="streamable-http"
+            transport="streamable-http",
+            host=host,
+            port=port,
         )
