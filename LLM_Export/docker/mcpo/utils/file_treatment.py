@@ -257,7 +257,7 @@ def search_gemini(query: str) -> str | None:
             model=model,
             input=query.strip(),
         )
-        image_b64 = interaction.output_image.data
+        image_b64 = base64.b64decode(interaction.output_image.data)
         log.info("Gemini image generated via SDK (google.genai)")
     except Exception as e:
         log.warning("Google.genai SDK failed, falling back to raw HTTP: %s", e)
@@ -277,7 +277,8 @@ def search_gemini(query: str) -> str | None:
             resp.raise_for_status()
             data = resp.json()
             inline = data["candidates"][0]["content"]["parts"][0].get("inlineData", {})
-            image_b64 = base64.b64decode(inline.get("data", ""))
+            if inline.get("data"):
+                image_b64 = base64.b64decode(inline["data"])
             log.info("Gemini image generated via HTTP fallback")
         except Exception as e:
             log.error("Gemini HTTP fallback error: %s", e)

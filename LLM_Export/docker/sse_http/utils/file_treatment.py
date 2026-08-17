@@ -193,7 +193,7 @@ def search_gemini(query: str) -> str | None:
             model=model,
             input=query.strip(),
         )
-        image_b64 = interaction.output_image.data
+        image_b64 = base64.b64decode(interaction.output_image.data)
         log.info("Gemini image generated via SDK (google.genai)")
     except Exception as e:
         log.warning("Google.genai SDK failed, falling back to raw HTTP: %s", e)
