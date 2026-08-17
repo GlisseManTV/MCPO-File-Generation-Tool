@@ -236,8 +236,8 @@ def search_local_sd(query: str) -> str | None:
 def search_gemini(query: str) -> str | None:
     """Generate an image using Google Gemini Image Generation API.
     
-    Tries the google-genai SDK first, falls back to raw HTTP if SDK
-    is unavailable or call fails.
+    Uses the new google.genai SDK (client.interactions.create),
+    falls back to raw HTTP if SDK unavailable or call fails.
     """
     log = logging.getLogger(__name__)
     api_key = os.getenv("GOOGLE_GEMINI_API_KEY")
@@ -246,22 +246,21 @@ def search_gemini(query: str) -> str | None:
         return None
 
     api_base = os.getenv("GOOGLE_GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
-    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp-image-generation")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-image")
     image_b64 = None
 
-    # --- Try SDK first ---
+    # --- Try new SDK first ---
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model_obj = genai.GenerativeModel(model)
-        response = model_obj.generate_content(
-            query.strip(),
-            generation_config={"response_mime_type": "image/png"}
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        interaction = client.interactions.create(
+            model=model,
+            input=query.strip(),
         )
-        image_b64 = response.content.parts[0].data
-        log.info("Gemini image generated via SDK")
+        image_b64 = interaction.output_image.data
+        log.info("Gemini image generated via SDK (google.genai)")
     except Exception as e:
-        log.warning("Gemini SDK failed, falling back to raw HTTP: %s", e)
+        log.warning("Google.genai SDK failed, falling back to raw HTTP: %s", e)
 
     # --- Raw HTTP fallback ---
     if not image_b64:
