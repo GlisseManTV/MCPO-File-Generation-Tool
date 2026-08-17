@@ -262,15 +262,18 @@ def search_gemini(query: str) -> str | None:
     except Exception as e:
         log.warning("Google.genai SDK failed, falling back to raw HTTP: %s", e)
 
-    # --- Raw HTTP fallback ---
+    # --- Raw HTTP fallback (uses x-goog-api-key header to avoid exposing key in logs) ---
     if not image_b64:
         try:
-            url = f"{api_base.rstrip('/')}/models/{model}:generateContent?key={api_key}"
+            url = f"{api_base.rstrip('/')}/models/{model}:generateContent"
             payload = {
                 "contents": [{"parts": [{"text": query.strip()}]}],
                 "generationConfig": {"responseMimeType": "image/png"}
             }
-            headers = {"Content-Type": "application/json"}
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            }
             resp = requests.post(
                 url, json=payload, headers=headers, timeout=_image_timeout()
             )
