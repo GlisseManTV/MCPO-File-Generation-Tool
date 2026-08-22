@@ -158,8 +158,6 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     else:
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
-    
-    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
         try:
