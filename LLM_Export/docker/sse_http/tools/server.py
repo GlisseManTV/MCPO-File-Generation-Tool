@@ -1163,10 +1163,6 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES, use_templ
     content = data.get("content")
     title = data.get("title")
 
-    # Fallback: honor the "use_template" key inside data if present (data value wins)
-    if "use_template" in data:
-        use_template = _env_bool(data["use_template"])
-
     # Validate filename to prevent path traversal
     if filename:
         try:
@@ -1445,6 +1441,11 @@ async def handle_sse(request: Request) -> Response:
                                     "persistent": {
                                         "type": "boolean",
                                         "description": "Whether to keep files permanently (default: false, files deleted after delay)"
+                                    },
+                                    "use_template": {
+                                        "type": "boolean",
+                                        "default": True,
+                                        "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
                                     }
                                 },
                                 "required": ["data"]
