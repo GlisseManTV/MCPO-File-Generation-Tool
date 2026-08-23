@@ -9,13 +9,13 @@ PAste it in a new skill in OpenWebUI and give it access to your model
 ```
 ---
 name: doc_generation
-description: Generate Office documents (.pdf, .docx, .pptx), spreadsheets (.xlsx, .csv), and text files (.txt, .json, .xml, .py) using create_file() for single files or generate_and_archive() only when explicitly requested to create an archive (zip, tar.gz, 7z). Support for rich content including images via Unsplash queries in presentations and documents, structured tables, lists, and formatted text. Always retrieve full document context with tool_full_context_document_post before revision or editing operations. Handle content review (comments) separately from content edits, using appropriate indexes (sid/pid/shid for PPTX/DOCX/XLSX). Never combine review and edit in the same action, and never display modified document content in chat—only return the uploaded file URL from the tool response. Archives are strictly forbidden without explicit user request such as "create archive," "zip," "pack," or equivalent wording.
+description: Generate Office documents (.pdf, .docx, .pptx), spreadsheets (.xlsx, .csv), and text files (.txt, .json, .xml, .py) using create_file() for single files or generate_and_archive() only when explicitly requested to create an archive (zip, tar.gz, 7z). Support for rich content including images via Unsplash queries in presentations and documents, structured tables, lists, and formatted text. Always retrieve full document context with tool_full_context_document_post before revision or editing operations. Handle content review (comments) separately from content edits, using appropriate indexes (sid/pid/shid for PPTX/DOCX/XLSX). Never combine review and edit in the same action, and never display modified document content in chat—only return the uploaded file URL from the tool response. Archives are strictly forbidden without explicit user request such as "create archive," "zip," "pack," or equivalent wording. Template control via the use_template parameter (default true): set use_template=false to generate a blank document without the configured Office template when the user explicitly requests a plain/blank/unbranded document.
 ---
 
 📂 File Generation (using `file_export` tool)
   - Available tools:
-     - `create_file(data, persistent=True)` → generates a single file from a `data` object.
-     - `generate_and_archive(files_data, archive_format="zip", archive_name=None, persistent=True)` → generates multiple files of various types and archives them into a single `.zip`, `.tar.gz` or `.7z` file.
+     - `create_file(data, persistent=True, use_template=True)` → generates a single file from a `data` object.
+     - `generate_and_archive(files_data, archive_format="zip", archive_name=None, persistent=True, use_template=True)` → generates multiple files of various types and archives them into a single `.zip`, `.tar.gz` or `.7z` file.
 
   - Fundamental absolute rules:
     1. **Strict prohibition of any archive generation, unless explicitly and clearly requested by the user.**
@@ -55,6 +55,7 @@ description: Generate Office documents (.pdf, .docx, .pptx), spreadsheets (.xlsx
          - `content` (any): file content (depending on the type, see below).
          - `title` (str, optional): for files like `pdf`, `pptx`, `docx`.
          - `slides_data` (list[dict], optional): for `.pptx` (see below).
+         - `use_template` (bool, optional): per-file override of the global `use_template` flag (per-file value wins).
 
 ⚠️ Special rule for `pptx`, `docx`, `pdf`:
     - Even if multiple slides, paragraphs, sections, or elements are defined, 
@@ -98,13 +99,24 @@ description: Generate Office documents (.pdf, .docx, .pptx), spreadsheets (.xlsx
         - `persistent=True`: file kept indefinitely.
         - `persistent=False`: file automatically deleted after a delay.
 
-    12. **Absolute rule:**
+    12. **Template management (`use_template`):**
+        - `use_template` is a **tool-level parameter** of `create_file` and `generate_and_archive` (it is NOT a key of the `data` or `files_data` objects).
+        - Default is `true`: the configured default Office template (header, branding, styles) is applied to `.docx`, `.pptx` and `.xlsx` files.
+        - Set `use_template=false` **only when the user explicitly asks** for a blank, plain, or template-free document:
+          - "blank document", "plain file", "without template", "no header", "unbranded",
+          - "document vierge", "sans modèle", "sans en-tête", "sans branding", or equivalent.
+        - If the user does not explicitly ask, **always keep the default** (template applied). Never guess.
+        - `use_template=false` only changes the visual template: the content (`title`, `content`, `slides_data`) is still generated normally.
+        - Applies only to `.docx`, `.pptx`, `.xlsx`. Ignored for `pdf`, `csv`, `txt`, `xml`, `json`, `py`, etc.
+        - For `generate_and_archive`: the tool-level flag applies to all files; each file dict in `files_data` can override it with its own `"use_template": true|false` key (per-file value wins).
+
+    13. **Absolute rule:**
         - **Never use `generate_and_archive` without explicit request from the user.**
         - **Archive generation is strictly prohibited by default.**
         - **If multiple files are requested, create each separately with `create_file`.**
         - **Never assume the user wants a pack, archive, or compressed folder.**
 
-    13. **Result:**
+    14. **Result:**
         - Always return **only** the link provided by the tool (`url`).
         - Never invent local paths.
         - Respect file uniqueness (suffixes added automatically if necessary).
