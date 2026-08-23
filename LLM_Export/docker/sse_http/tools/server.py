@@ -1371,6 +1371,11 @@ async def handle_sse(request: Request) -> Response:
                                                 "type": "string",
                                                 "description": "Document title (for docx, pptx, xlsx, pdf)"
                                             },
+                                            "use_template": {
+                                                "type": "boolean",
+                                                "default": True,
+                                                "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
+                                            },
                                             "content": {
                                                 "description": "Content varies by format. For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
                                                 "oneOf": [

@@ -14,7 +14,8 @@ from io import BytesIO
 from typing import Any, List, Optional, Tuple
 
 import py7zr
-from mcp.server.mcpserver import MCPServer, Context
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 
 from docx import Document
 from docx.shared import Inches
@@ -162,7 +163,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
 # MCP server
 # -----------------------------------------------------------------------------
 
-mcp = MCPServer(name="file_export")
+mcp = FastMCP("file_export")
 
 
 @mcp.tool(
@@ -174,7 +175,7 @@ async def full_context_document(
     file_id: str,
     file_name: str,
     headers: dict | None = None,
-    ctx: Context | None = None
+    ctx: Context[ServerSession, None] | None = None
 ) -> dict:
     """
     Inspect a document structure (docx/xlsx/pptx) and return a unified JSON representation.
@@ -377,7 +378,7 @@ async def edit_document(
     file_name: str,
     edits: dict | list,
     headers: dict | None = None,
-    ctx: Context | None = None
+    ctx: Context[ServerSession, None] | None = None
 ) -> dict:
     """
     Apply structural/content edits to a DOCX/XLSX/PPTX document.
@@ -766,7 +767,7 @@ async def review_document(
     file_name: str,
     review_comments: list[tuple[int | str, str]],
     headers: dict = None,
-    ctx: Context = None
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
