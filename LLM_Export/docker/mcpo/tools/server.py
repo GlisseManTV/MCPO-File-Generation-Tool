@@ -64,7 +64,7 @@ from utils import (
 )
 from utils.pptx_treatment import _resolve_donor_simple
 
-SCRIPT_VERSION = "1.0.3"
+SCRIPT_VERSION = "1.0.4-dev6"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -147,8 +147,6 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     else:
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
-    
-    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
         try:
@@ -1032,7 +1030,7 @@ async def review_document(
 
 
 @mcp.tool()
-async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES, use_template: bool = True) -> dict:
     """
     Create a single file based on 'data' description.
     data examples:
@@ -1042,6 +1040,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
       {"format":"xlsx","filename":"data.xlsx","content":[[...]],"title":"..."}
       {"format":"csv","filename":"data.csv","content":[[...]]}
       {"format":"txt|xml|py|...","filename":"file.ext","content":"string"}
+    use_template: if True (default), the configured default template (docx/pptx/xlsx) is applied when available; if False, a blank document is created. Ignored for formats without templates (pdf, csv, txt...).
     """
     log.debug("Creating file via tool (server.py)")
     folder_path = _generate_unique_folder()
@@ -1049,6 +1048,10 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
     filename = data.get("filename")
     content = data.get("content")
     title = data.get("title")
+
+    # Fallback: honor the "use_template" key inside data if present (data value wins)
+    if "use_template" in data:
+        use_template = _env_bool(data["use_template"])
 
     # Validate filename to prevent path traversal
     if filename:
@@ -1066,7 +1069,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
             filename,
             folder_path=folder_path,
             title=title,
-            pptx_template_path=PPTX_TEMPLATE_PATH,
+            pptx_template_path=PPTX_TEMPLATE_PATH if use_template else None,
         )
     elif format_type == "docx":
         result = create_word(
@@ -1074,7 +1077,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
             filename,
             folder_path=folder_path,
             title=title,
-            docx_template_path=DOCX_TEMPLATE_PATH,
+            docx_template_path=DOCX_TEMPLATE_PATH if use_template else None,
         )
     elif format_type == "xlsx":
         result = create_excel(
@@ -1082,7 +1085,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
             filename,
             folder_path=folder_path,
             title=title,
-            xlsx_template_path=XLSX_TEMPLATE_PATH if "xlsx_template_path" in create_excel.__code__.co_varnames else None,  # type: ignore
+            xlsx_template_path=XLSX_TEMPLATE_PATH if (use_template and "xlsx_template_path" in create_excel.__code__.co_varnames) else None,  # type: ignore
         )
     elif format_type == "csv":
         result = _create_csv(content if content is not None else [], filename, folder_path=folder_path)
@@ -1101,12 +1104,14 @@ async def generate_and_archive(
     files_data: list[dict],
     archive_format: str = "zip",
     archive_name: str | None = None,
-    persistent: bool = PERSISTENT_FILES
+    persistent: bool = PERSISTENT_FILES,
+    use_template: bool = True
 ) -> dict:
     """
     Generate multiple files then archive them.
     files_data: list of 'data' dicts (same shape as for create_file)
     archive_format: zip | 7z | tar.gz
+    use_template: global flag (default True) applied to all files; can be overridden per file with the "use_template": false key in each data dict of files_data (per-file value wins).
     """
     log.debug("Generating archive via tool (server.py)")
     folder_path = _generate_unique_folder()
@@ -1117,6 +1122,8 @@ async def generate_and_archive(
         fname = file_info.get("filename")
         content = file_info.get("content")
         title = file_info.get("title")
+        # Per-file template override: per-file value wins, otherwise the global flag is used
+        file_use_template = _env_bool(file_info["use_template"]) if "use_template" in file_info else use_template
 
         # Validate filename to prevent path traversal
         if fname:
@@ -1134,7 +1141,7 @@ async def generate_and_archive(
                     fname,
                     folder_path=folder_path,
                     title=title,
-                    pptx_template_path=PPTX_TEMPLATE_PATH,
+                    pptx_template_path=PPTX_TEMPLATE_PATH if file_use_template else None,
                 )
             elif fmt == "docx":
                 res = create_word(
@@ -1142,7 +1149,7 @@ async def generate_and_archive(
                     fname,
                     folder_path=folder_path,
                     title=title,
-                    docx_template_path=DOCX_TEMPLATE_PATH,
+                    docx_template_path=DOCX_TEMPLATE_PATH if file_use_template else None,
                 )
             elif fmt == "xlsx":
                 res = create_excel(
@@ -1150,7 +1157,7 @@ async def generate_and_archive(
                     fname,
                     folder_path=folder_path,
                     title=title,
-                    xlsx_template_path=XLSX_TEMPLATE_PATH if "xlsx_template_path" in create_excel.__code__.co_varnames else None,  # type: ignore
+                    xlsx_template_path=XLSX_TEMPLATE_PATH if (file_use_template and "xlsx_template_path" in create_excel.__code__.co_varnames) else None,  # type: ignore
                 )
             elif fmt == "csv":
                 res = _create_csv(content if content is not None else [], fname, folder_path=folder_path)
