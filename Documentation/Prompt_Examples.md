@@ -100,7 +100,8 @@ description: Generate Office documents (.pdf, .docx, .pptx), spreadsheets (.xlsx
         - `persistent=False`: file automatically deleted after a delay.
 
     12. **Template management (`use_template`):**
-        - `use_template` is a **tool-level parameter** of `create_file` and `generate_and_archive` (it is NOT a key of the `data` or `files_data` objects).
+        - `use_template` is a **tool-level parameter** of `create_file` and `generate_and_archive`.
+        - For `create_file`, a `"use_template": true|false` key inside the `data` object is also honored as a fallback (the `data` value wins if present).
         - Default is `true`: the configured default Office template (header, branding, styles) is applied to `.docx`, `.pptx` and `.xlsx` files.
         - Set `use_template=false` **only when the user explicitly asks** for a blank, plain, or template-free document:
           - "blank document", "plain file", "without template", "no header", "unbranded",

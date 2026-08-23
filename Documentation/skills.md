@@ -38,6 +38,7 @@ description: Generate Office documents (.pdf, .docx, .pptx), spreadsheets (.xlsx
          - For `xml`: if the content does not start with `<?xml version="1.0" encoding="UTF-8"?>`, this declaration will be added automatically.
        - `title` (str, optional): used for presentations or structured documents.
        - `slides_data` (list[dict], optional): for `.pptx`, contains the slides (see below).
+        - `use_template` (bool, optional): if present in `data`, overrides the tool-level `use_template` flag for this file (the `data` value wins).
 
     6. **Structure of `files_data` for `generate_and_archive`:**
        - List of objects, each containing:

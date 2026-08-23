@@ -1049,6 +1049,10 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES, use_templ
     content = data.get("content")
     title = data.get("title")
 
+    # Fallback: honor the "use_template" key inside data if present (data value wins)
+    if "use_template" in data:
+        use_template = _env_bool(data["use_template"])
+
     # Validate filename to prevent path traversal
     if filename:
         try:
