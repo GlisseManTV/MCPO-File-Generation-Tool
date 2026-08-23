@@ -71,7 +71,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "1.0.4-dev5"
+SCRIPT_VERSION = "1.0.4-dev6"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -1371,6 +1371,11 @@ async def handle_sse(request: Request) -> Response:
                                                 "type": "string",
                                                 "description": "Document title (for docx, pptx, xlsx, pdf)"
                                             },
+                                            "use_template": {
+                                                "type": "boolean",
+                                                "default": True,
+                                                "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
+                                            },
                                             "content": {
                                                 "description": "Content varies by format. For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
                                                 "oneOf": [
@@ -1436,6 +1441,11 @@ async def handle_sse(request: Request) -> Response:
                                     "persistent": {
                                         "type": "boolean",
                                         "description": "Whether to keep files permanently (default: false, files deleted after delay)"
+                                    },
+                                    "use_template": {
+                                        "type": "boolean",
+                                        "default": True,
+                                        "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
                                     }
                                 },
                                 "required": ["data"]
@@ -1487,6 +1497,11 @@ async def handle_sse(request: Request) -> Response:
                                                     ]
                                                 },
                                                 "title": { "type": "string" },
+                                                "use_template": {
+                                                    "type": "boolean",
+                                                    "default": True,
+                                                    "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
+                                                },
                                                 "slides_data": {
                                                     "type": "array",
                                                     "description": "For pptx format only: array of slide objects",

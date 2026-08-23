@@ -1,6 +1,6 @@
 openpyxl
 reportlab
-mcp>=2.0.0
+mcp==1.29.0
 py7zr
 fastapi
 uvicorn

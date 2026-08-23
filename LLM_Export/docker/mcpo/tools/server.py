@@ -14,7 +14,8 @@ from io import BytesIO
 from typing import Any, List, Optional, Tuple
 
 import py7zr
-from mcp.server.mcpserver import MCPServer, Context
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 
 from docx import Document
 from docx.shared import Inches
@@ -63,7 +64,7 @@ from utils import (
 )
 from utils.pptx_treatment import _resolve_donor_simple
 
-SCRIPT_VERSION = "1.0.4-dev5"
+SCRIPT_VERSION = "1.0.4-dev6"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -162,7 +163,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
 # MCP server
 # -----------------------------------------------------------------------------
 
-mcp = MCPServer(name="file_export")
+mcp = FastMCP("file_export")
 
 
 @mcp.tool(
@@ -174,7 +175,7 @@ async def full_context_document(
     file_id: str,
     file_name: str,
     headers: dict | None = None,
-    ctx: Context | None = None
+    ctx: Context[ServerSession, None] | None = None
 ) -> dict:
     """
     Inspect a document structure (docx/xlsx/pptx) and return a unified JSON representation.
@@ -377,7 +378,7 @@ async def edit_document(
     file_name: str,
     edits: dict | list,
     headers: dict | None = None,
-    ctx: Context | None = None
+    ctx: Context[ServerSession, None] | None = None
 ) -> dict:
     """
     Apply structural/content edits to a DOCX/XLSX/PPTX document.
@@ -766,7 +767,7 @@ async def review_document(
     file_name: str,
     review_comments: list[tuple[int | str, str]],
     headers: dict = None,
-    ctx: Context = None
+    ctx: Context[ServerSession, None] = None
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -1047,6 +1048,10 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES, use_templ
     filename = data.get("filename")
     content = data.get("content")
     title = data.get("title")
+
+    # Fallback: honor the "use_template" key inside data if present (data value wins)
+    if "use_template" in data:
+        use_template = _env_bool(data["use_template"])
 
     # Validate filename to prevent path traversal
     if filename:
