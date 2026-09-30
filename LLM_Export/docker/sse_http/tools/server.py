@@ -15,8 +15,7 @@ from io import BytesIO
 from typing import Any, List, Optional, Tuple, Union
 from typing_extensions import TypedDict
 import py7zr
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.session import ServerSession
+from mcp.server.mcpserver import MCPServer, Context
 
 from docx import Document
 from docx.shared import Inches
@@ -72,7 +71,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import Response, JSONResponse, StreamingResponse
 
-SCRIPT_VERSION = "1.0.3"
+SCRIPT_VERSION = "1.0.4-dev6"
 
 LOG_LEVEL_ENV = os.getenv("LOG_LEVEL")
 LOG_FORMAT_ENV = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -159,8 +158,6 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
     else:
         logging.debug("No DOCX template found. Creation of a blank document.")
         DOCX_TEMPLATE = None
-    
-    XLSX_TEMPLATE_PATH = os.path.join("/rootPath/templates","Default_Template.xlsx")
 
     if XLSX_TEMPLATE_PATH:
         try:
@@ -177,11 +174,7 @@ if DOCS_TEMPLATE_PATH and os.path.exists(DOCS_TEMPLATE_PATH):
 # MCP server
 # -----------------------------------------------------------------------------
 
-mcp = FastMCP(
-    name = "file_export",
-    port = int(os.getenv("MCP_HTTP_PORT", "9004")),
-    host = (os.getenv("MCP_HTTP_HOST", "0.0.0.0"))
-)
+mcp = MCPServer(name="file_export")
 
 @mcp.tool(
     name="full_context_document",
@@ -192,7 +185,7 @@ mcp = FastMCP(
 async def full_context_document(
     file_id: str,
     file_name: str,
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Return the structure of a document (docx, xlsx, pptx) based on its file extension.
@@ -400,7 +393,7 @@ async def edit_document(
     file_id: str,
     file_name: str,
     edits: dict,
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Edits a document (docx, xlsx, pptx) using structured operations.
@@ -878,7 +871,7 @@ async def review_document(
     file_id: str,
     file_name: str,
     review_comments: List[ReviewComment],
-    ctx: Context[ServerSession, None]
+    ctx: Context
 ) -> dict:
     """
     Generic document review function that works with different document types.
@@ -1151,7 +1144,7 @@ async def review_document(
         )
 
 @mcp.tool()
-async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
+async def create_file(data: dict, persistent: bool = PERSISTENT_FILES, use_template: bool = True) -> dict:
     """
     Create a single file based on 'data' description.
     data examples:
@@ -1161,6 +1154,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
       {"format":"xlsx","filename":"data.xlsx","content":[[...]],"title":"..."}
       {"format":"csv","filename":"data.csv","content":[[...]]}
       {"format":"txt|xml|py|...","filename":"file.ext","content":"string"}
+    use_template: if True (default), the configured default template (docx/pptx/xlsx) is applied when available; if False, a blank document is created. Ignored for formats without templates (pdf, csv, txt...).
     """
     log.debug("Creating file via tool (server.py)")
     folder_path = _generate_unique_folder()
@@ -1185,7 +1179,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
             filename,
             folder_path=folder_path,
             title=title,
-            pptx_template_path=PPTX_TEMPLATE_PATH,
+            pptx_template_path=PPTX_TEMPLATE_PATH if use_template else None,
         )
     elif format_type == "docx":
         result = create_word(
@@ -1193,7 +1187,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
             filename,
             folder_path=folder_path,
             title=title,
-            docx_template_path=DOCX_TEMPLATE_PATH,
+            docx_template_path=DOCX_TEMPLATE_PATH if use_template else None,
         )
     elif format_type == "xlsx":
         result = create_excel(
@@ -1201,7 +1195,7 @@ async def create_file(data: dict, persistent: bool = PERSISTENT_FILES) -> dict:
             filename,
             folder_path=folder_path,
             title=title,
-            xlsx_template_path=XLSX_TEMPLATE_PATH if "xlsx_template_path" in create_excel.__code__.co_varnames else None,  # type: ignore
+            xlsx_template_path=XLSX_TEMPLATE_PATH if (use_template and "xlsx_template_path" in create_excel.__code__.co_varnames) else None,  # type: ignore
         )
     elif format_type == "csv":
         result = _create_csv(content if content is not None else [], filename, folder_path=folder_path)
@@ -1220,12 +1214,14 @@ async def generate_and_archive(
     files_data: list[dict],
     archive_format: str = "zip",
     archive_name: str | None = None,
-    persistent: bool = PERSISTENT_FILES
+    persistent: bool = PERSISTENT_FILES,
+    use_template: bool = True
 ) -> dict:
     """
     Generate multiple files then archive them.
     files_data: list of 'data' dicts (same shape as for create_file)
     archive_format: zip | 7z | tar.gz
+    use_template: global flag (default True) applied to all files; can be overridden per file with the "use_template": false key in each data dict of files_data (per-file value wins).
     """
     log.debug("Generating archive via tool (server.py)")
     folder_path = _generate_unique_folder()
@@ -1236,6 +1232,8 @@ async def generate_and_archive(
         fname = file_info.get("filename")
         content = file_info.get("content")
         title = file_info.get("title")
+        # Per-file template override: per-file value wins, otherwise the global flag is used
+        file_use_template = _env_bool(file_info["use_template"]) if "use_template" in file_info else use_template
 
         # Validate filename to prevent path traversal
         if fname:
@@ -1253,7 +1251,7 @@ async def generate_and_archive(
                     fname,
                     folder_path=folder_path,
                     title=title,
-                    pptx_template_path=PPTX_TEMPLATE_PATH,
+                    pptx_template_path=PPTX_TEMPLATE_PATH if file_use_template else None,
                 )
             elif fmt == "docx":
                 res = create_word(
@@ -1261,7 +1259,7 @@ async def generate_and_archive(
                     fname,
                     folder_path=folder_path,
                     title=title,
-                    docx_template_path=DOCX_TEMPLATE_PATH,
+                    docx_template_path=DOCX_TEMPLATE_PATH if file_use_template else None,
                 )
             elif fmt == "xlsx":
                 res = create_excel(
@@ -1269,7 +1267,7 @@ async def generate_and_archive(
                     fname,
                     folder_path=folder_path,
                     title=title,
-                    xlsx_template_path=XLSX_TEMPLATE_PATH if "xlsx_template_path" in create_excel.__code__.co_varnames else None,  # type: ignore
+                    xlsx_template_path=XLSX_TEMPLATE_PATH if (file_use_template and "xlsx_template_path" in create_excel.__code__.co_varnames) else None,  # type: ignore
                 )
             elif fmt == "csv":
                 res = _create_csv(content if content is not None else [], fname, folder_path=folder_path)
@@ -1373,6 +1371,11 @@ async def handle_sse(request: Request) -> Response:
                                                 "type": "string",
                                                 "description": "Document title (for docx, pptx, xlsx, pdf)"
                                             },
+                                            "use_template": {
+                                                "type": "boolean",
+                                                "default": True,
+                                                "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
+                                            },
                                             "content": {
                                                 "description": "Content varies by format. For pdf/docx: array (objects or strings). For xlsx/csv: 2D array. For pptx: use slides_data instead. For txt/xml/py: string",
                                                 "oneOf": [
@@ -1438,6 +1441,11 @@ async def handle_sse(request: Request) -> Response:
                                     "persistent": {
                                         "type": "boolean",
                                         "description": "Whether to keep files permanently (default: false, files deleted after delay)"
+                                    },
+                                    "use_template": {
+                                        "type": "boolean",
+                                        "default": True,
+                                        "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
                                     }
                                 },
                                 "required": ["data"]
@@ -1489,6 +1497,11 @@ async def handle_sse(request: Request) -> Response:
                                                     ]
                                                 },
                                                 "title": { "type": "string" },
+                                                "use_template": {
+                                                    "type": "boolean",
+                                                    "default": True,
+                                                    "description": "Per-file override of the global use_template flag for this specific file (docx, pptx, xlsx only). Set to false to generate this file as a blank document without the template. Per-file value wins over the global flag."
+                                                },
                                                 "slides_data": {
                                                     "type": "array",
                                                     "description": "For pptx format only: array of slide objects",
@@ -1903,5 +1916,7 @@ if __name__ == "__main__":
         log.info(f"HTTP endpoint: http://{host}:{port}/mcp")
 
         mcp.run(
-            transport="streamable-http"
+            transport="streamable-http",
+            host=host,
+            port=port,
         )

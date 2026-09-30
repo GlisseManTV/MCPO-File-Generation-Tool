@@ -24,8 +24,10 @@ RUN pip install --no-cache-dir \
     uvicorn \
     starlette \
     pillow \
-    mcp[fastmcp]==1.29.0 \
-    openai>=1.0.0
+    mcp>=2.0.0 \
+    openai>=1.0.0 \
+    google-genai
+
 
 COPY config.json /rootPath
 COPY tools /rootPath/tools

@@ -116,7 +116,7 @@ def download_file(file_id: str, token: str) -> BytesIO:
 def search_image(query: str):
     """
     Search or generate an image based on env var IMAGE_SOURCE.
-    Supports: unsplash, local_sd, pexels, openai.
+    Supports: unsplash, local_sd, pexels, openai, gemini.
     Returns a public URL or a local public URL (served via BASE_URL).
     """
     image_source = os.getenv("IMAGE_SOURCE", "unsplash").strip().lower()
@@ -128,6 +128,8 @@ def search_image(query: str):
         return search_pexels(query)
     elif image_source == "openai":
         return search_openai(query)
+    elif image_source == "gemini":
+        return search_gemini(query)
     logging.getLogger(__name__).warning(f"Unknown IMAGE_SOURCE '{image_source}'")
     return None
 
@@ -230,6 +232,71 @@ def search_local_sd(query: str) -> str | None:
     except Exception as e:
         log.error(f"Local SD generation error: {e}")
     return None
+
+def search_gemini(query: str) -> str | None:
+    """Generate an image using Google Gemini Image Generation API.
+    
+    Uses the new google.genai SDK (client.interactions.create),
+    falls back to raw HTTP if SDK unavailable or call fails.
+    """
+    log = logging.getLogger(__name__)
+    api_key = os.getenv("GOOGLE_GEMINI_API_KEY")
+    if not api_key:
+        log.warning("GOOGLE_GEMINI_API_KEY not set")
+        return None
+
+    api_base = os.getenv("GOOGLE_GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-image")
+    image_b64 = None
+
+    # --- Try new SDK first ---
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        interaction = client.interactions.create(
+            model=model,
+            input=query.strip(),
+        )
+        image_b64 = base64.b64decode(interaction.output_image.data)
+        log.info("Gemini image generated via SDK (google.genai)")
+    except Exception as e:
+        log.warning("Google.genai SDK failed, falling back to raw HTTP: %s", e)
+
+    # --- Raw HTTP fallback (uses x-goog-api-key header to avoid exposing key in logs) ---
+    if not image_b64:
+        try:
+            url = f"{api_base.rstrip('/')}/models/{model}:generateContent"
+            payload = {
+                "contents": [{"parts": [{"text": query.strip()}]}],
+                "generationConfig": {"responseMimeType": "image/png"}
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            }
+            resp = requests.post(
+                url, json=payload, headers=headers, timeout=_image_timeout()
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            inline = data["candidates"][0]["content"]["parts"][0].get("inlineData", {})
+            if inline.get("data"):
+                image_b64 = base64.b64decode(inline["data"])
+            log.info("Gemini image generated via HTTP fallback")
+        except Exception as e:
+            log.error("Gemini HTTP fallback error: %s", e)
+
+    # --- Save and return ---
+    if image_b64:
+        folder_path = _generate_unique_folder()
+        filename = f"gemini_{uuid.uuid4().hex[:8]}.png"
+        filepath = os.path.join(folder_path, filename)
+        with open(filepath, "wb") as f:
+            f.write(image_b64)
+        return _public_url(folder_path, filename)
+
+    return None
+
 
 def search_openai(query: str) -> str | None:
     """

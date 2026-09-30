@@ -1,7 +1,7 @@
 name: Build & Push GHCR images
 on:
   push:
-    branches: [ master, main, dev, alpha, beta, release-candidate, folder-refac ]
+    branches: [ master, main, dev, release-candidate ]
     tags: [ 'v*' ]
   workflow_dispatch:
 permissions:
@@ -33,12 +33,6 @@ jobs:
             
             # Mapping tag → branche via pattern matching
             case "$TAG" in
-              *'-alpha'*|*'-a'*)
-                TARGET_BRANCH="alpha"
-                ;;
-              *'-beta'*|*'-b'*)
-                TARGET_BRANCH="beta"
-                ;;
               *'-rc'*|*'-release-candidate'*)
                 TARGET_BRANCH="release-candidate"
                 ;;
@@ -111,11 +105,8 @@ jobs:
             type=sha,format=short
             type=ref,event=tag
             # Tags branch-specific dynamiques
-            type=raw,value=alpha-latest,enable=${{github.ref == 'refs/heads/alpha'}}
-            type=raw,value=beta-latest,enable=${{github.ref == 'refs/heads/beta'}}
             type=raw,value=dev-latest,enable=${{github.ref == 'refs/heads/dev'}}
             type=raw,value=rc-latest,enable=${{github.ref == 'refs/heads/release-candidate'}}
-            type=raw,value=fc-latest,enable=${{github.ref == 'refs/heads/folder-refac'}}
 
 
       - name: Build & Push (${{ matrix.name }})
